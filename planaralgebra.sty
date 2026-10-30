@@ -23,6 +23,7 @@
 \cs_generate_variant:Nn \clist_set:Nn { Ne , NV }
 \cs_generate_variant:Nn \str_case:nnF { e }
 \cs_generate_variant:Nn \msg_error:nnnn { nnVe , nnne , nnee }
+\cs_generate_variant:Nn \msg_warning:nnn { nne }
 \cs_generate_variant:Nn \msg_error:nnnnnn { nneeee }
 \cs_generate_variant:Nn \msg_error:nnnnn { nneee }
 
@@ -70,6 +71,12 @@
     cannot~be~shaded~in~a~checkerboard~fashion.~The~tangle~is~drawn~
     without~shading.
   }
+\msg_new:nnn { planaralgebra } { max-states }
+  {
+    The~normal~form~was~chosen~among~the~first~#1~arrangements~of~the~
+    input~discs~only,~so~isotopic~tangles~may~get~different~normal~
+    forms.~Raise~the~key~`max~states'~to~search~further.
+  }
 \msg_new:nnn { planaralgebra } { standalone-formula }
   {
     A~diagram~is~used~in~a~formula~that~the~`standalone'~class~does~not~
@@ -116,7 +123,8 @@
   {
     layer , a , b , m , n , prev , unknown , N , i , j , k , idx , out , len ,
     through , box , loops , R , cur , before , strand , conn , D , T , pa , pb ,
-    count , c
+    count , c , tm , uin , uout , ubl , ubr , lin , lout , lbl , lbr , tmpc ,
+    total , cutb , maxstates
   }
   { \int_new:c { l__planar_ #1 _int } }
 \int_new:N \g__planar_loops_int
@@ -143,7 +151,7 @@
     vertical , reverse , reduce , coefficient , shading , negative , stars ,
     numbers , labels , names , expand , error , item_error , declared ,
     capture , first , changed , paired , any , merge , have , shade ,
-    has_one , has_two , zero_one , zero_two , mirror
+    has_one , has_two , zero_one , zero_two , mirror , closed
   }
   { \bool_new:c { l__planar_ #1 _bool } }
 \bool_new:N \g__planar_chain_bool
@@ -154,16 +162,19 @@
     boxshape , loop , separator , baseline , tikz , opts , draw , x , y , ox ,
     oy , p , q , cname , item , word , cur , merged , prefix , coeff , last ,
     sig , shade , strings , boxes , labelfont , path , sub , closing , caption ,
-    pt , gen
+    pt , gen , upper , lower , snap , nbr , bestword
   }
   { \tl_new:c { l__planar_ #1 _tl } }
 \str_new:N \l__planar_nf_str
+\str_new:N \l__planar_key_str
+\str_new:N \l__planar_best_str
 \str_new:N \g__planar_nf_str
 
 \clist_map_inline:nn
   {
     layers , items , match , state , tmpa , tmpb , nf , names , pred , predw ,
-    ideal , weight , bs , bw , bn , fpred , fw , G , legs , present
+    ideal , weight , bs , bw , bn , fpred , fw , G , legs , present , orig ,
+    save , words
   }
   { \seq_new:c { l__planar_ #1 _seq } }
 
@@ -174,7 +185,7 @@
 \clist_map_inline:nn
   {
     count , pos , gaps , g , other , bot , cu , cv , bl , br , bitem , depth ,
-    bwidth , bheight , bx , by , h , u , insert , tmp , new , number
+    bwidth , bheight , bx , by , h , u , insert , tmp , new , number , seen
   }
   { \prop_new:c { l__planar_ #1 _prop } }
 \prop_new:N \g__planar_defs_prop
@@ -203,6 +214,7 @@
     coefficient .bool_set:N = \l__planar_coefficient_bool ,
     coefficient .default:n = true ,
     loop~value .tl_set:N = \l__planar_loop_tl ,
+    max~states .int_set:N = \l__planar_maxstates_int ,
     insert .code:n =
       \prop_put_from_keyval:Nn \l__planar_insert_prop {#1} ,
     expand .bool_set:N = \l__planar_expand_bool ,
@@ -273,6 +285,7 @@
     reduce = false ,
     coefficient = true ,
     loop~value = \delta ,
+    max~states = 100 ,
     expand = false ,
     shading = true ,
     sign = + ,
@@ -793,7 +806,110 @@
       { \l__planar_cur_int - \__planar_in:n {#2} + \__planar_out:n {#2} }
   }
 
+% Discs on neighbouring levels can often be interchanged, passing each other
+% on the left or on the right.  All the words reachable by interchanges are
+% visited (each one with its connectors in normal form), and the one with
+% the least serialization is the normal form.
 \cs_new_protected:Npn \__planar_analyse:
+  {
+    \seq_set_eq:NN \l__planar_orig_seq \l__planar_layers_seq
+    \__planar_analyse_once:
+    \int_set_eq:NN \l__planar_total_int \l__planar_loops_int
+    \prop_clear:N \l__planar_seen_prop
+    \seq_clear:N \l__planar_words_seq
+    \str_clear:N \l__planar_best_str
+    \__planar_nf_layers:
+    \__planar_word_from_nf:Nn \l__planar_nbr_tl { }
+    \seq_put_right:NV \l__planar_words_seq \l__planar_nbr_tl
+    \bool_until_do:nn
+      {
+        \seq_if_empty_p:N \l__planar_words_seq ||
+        \int_compare_p:nNn { \prop_count:N \l__planar_seen_prop }
+          = \l__planar_maxstates_int
+      }
+      { \__planar_visit: }
+    \seq_if_empty:NF \l__planar_words_seq
+      {
+        \msg_warning:nne { planaralgebra } { max-states }
+          { \int_use:N \l__planar_maxstates_int }
+      }
+    \__planar_set_layers:nN { } \l__planar_bestword_tl
+    \__planar_analyse_once:
+    \int_set_eq:NN \l__planar_loops_int \l__planar_total_int
+    \__planar_nf_build:
+    \seq_set_eq:NN \l__planar_layers_seq \l__planar_orig_seq
+    \int_gset_eq:NN \g__planar_loops_int \l__planar_loops_int
+    \int_gset_eq:NN \g__planar_boxes_int \l__planar_R_int
+    \int_gset_eq:NN \g__planar_top_int \l__planar_m_int
+    \int_gset_eq:NN \g__planar_bottom_int \l__planar_n_int
+  }
+\cs_new_protected:Npn \__planar_visit:
+  {
+    \seq_pop_left:NN \l__planar_words_seq \l__planar_snap_tl
+    \__planar_set_layers:nN { } \l__planar_snap_tl
+    \__planar_analyse_once:
+    \__planar_nf_layers:
+    \__planar_state_key:
+    \prop_if_in:NVF \l__planar_seen_prop \l__planar_key_str
+      {
+        \prop_put:NVn \l__planar_seen_prop \l__planar_key_str { }
+        \__planar_word_from_nf:Nn \l__planar_snap_tl { }
+        \bool_lazy_or:nnT
+          { \str_if_empty_p:N \l__planar_best_str }
+          { \str_compare_p:eNe { \l__planar_key_str } < { \l__planar_best_str } }
+          {
+            \str_set_eq:NN \l__planar_best_str \l__planar_key_str
+            \tl_set_eq:NN \l__planar_bestword_tl \l__planar_snap_tl
+          }
+        \__planar_neighbours:n { }
+        \__planar_set_layers:nN { mirror } \l__planar_snap_tl
+        \__planar_analyse_once:
+        \__planar_neighbours:n { mirror }
+      }
+  }
+% Interchanges in which the lower disc passes the upper one on its left; in
+% the mirror image (#1 not empty) these are the ones on the right.
+\cs_new_protected:Npn \__planar_neighbours:n #1
+  {
+    \int_step_inline:nn { \l__planar_R_int - 1 }
+      {
+        \__planar_can_rise:n {##1}
+        \bool_if:NT \l__planar_closed_bool
+          {
+            \__planar_swap_left:n {##1}
+            \__planar_word_from_nf:Nn \l__planar_nbr_tl {#1}
+            \seq_put_right:NV \l__planar_words_seq \l__planar_nbr_tl
+          }
+      }
+  }
+\cs_new_protected:Npn \__planar_word_from_nf:Nn #1#2
+  {
+    \tl_clear:N #1
+    \seq_map_inline:Nn \l__planar_nf_seq
+      {
+        \tl_if_empty:nTF {#2}
+          { \tl_put_right:Nn #1 { {##1} } }
+          { \tl_put_right:Ne #1 { { \tl_reverse_items:n {##1} } } }
+      }
+  }
+\cs_new_protected:Npn \__planar_set_layers:nN #1#2
+  {
+    \seq_clear:N \l__planar_layers_seq
+    \tl_map_inline:Nn #2
+      {
+        \tl_if_empty:nTF {#1}
+          { \seq_put_right:Nn \l__planar_layers_seq {##1} }
+          { \seq_put_right:Ne \l__planar_layers_seq { \tl_reverse_items:n {##1} } }
+      }
+  }
+\cs_new_protected:Npn \__planar_state_key:
+  {
+    \tl_clear:N \l__planar_snap_tl
+    \seq_map_inline:Nn \l__planar_nf_seq
+      { \tl_put_right:Nn \l__planar_snap_tl { ##1 | } }
+    \str_set:NV \l__planar_key_str \l__planar_snap_tl
+  }
+\cs_new_protected:Npn \__planar_analyse_once:
   {
     \int_zero:N \l__planar_loops_int
     \int_zero:N \l__planar_R_int
@@ -822,11 +938,6 @@
       }
     \__planar_conn_end:
     \__planar_retract:
-    \__planar_nf_build:
-    \int_gset_eq:NN \g__planar_loops_int \l__planar_loops_int
-    \int_gset_eq:NN \g__planar_boxes_int \l__planar_R_int
-    \int_gset_eq:NN \g__planar_top_int \l__planar_m_int
-    \int_gset_eq:NN \g__planar_bottom_int \l__planar_n_int
   }
 
 % Rename the points of side #1 after #2, #2 + 1 have been removed.
@@ -945,9 +1056,165 @@
       }
   }
 
+% Can the disc on level #1 + 1 (L) be taken above the one on level #1 (U),
+% passing it on the left?  The two are joined by connector #1.
+\cs_new_protected:Npn \__planar_can_rise:n #1
+  {
+    \prop_get:NeN \l__planar_bitem_prop { \int_eval:n {#1} } \l__planar_upper_tl
+    \prop_get:NeN \l__planar_bitem_prop { \int_eval:n { #1 + 1 } } \l__planar_lower_tl
+    \int_set:Nn \l__planar_uin_int { \exp_args:NV \__planar_in:n \l__planar_upper_tl }
+    \int_set:Nn \l__planar_uout_int { \exp_args:NV \__planar_out:n \l__planar_upper_tl }
+    \int_set:Nn \l__planar_lin_int { \exp_args:NV \__planar_in:n \l__planar_lower_tl }
+    \int_set:Nn \l__planar_lout_int { \exp_args:NV \__planar_out:n \l__planar_lower_tl }
+    \int_set:Nn \l__planar_ubl_int { \__planar_bl:n {#1} }
+    \int_set:Nn \l__planar_ubr_int { \__planar_br:n {#1} }
+    \int_set:Nn \l__planar_lbl_int { \__planar_bl:n { #1 + 1 } }
+    \int_set:Nn \l__planar_lbr_int { \__planar_br:n { #1 + 1 } }
+    \__planar_left_sep:nnn {#1} { \l__planar_ubl_int }
+      { \l__planar_lbl_int + \l__planar_lin_int }
+  }
+% Can the bottom points up to #3 of connector #1, together with what they
+% are joined to, be cut off from the top points after #2?  The part cut off
+% has the top points up to \l__planar_tm_int and the bottom points up to
+% \l__planar_cutb_int.
+\cs_new_protected:Npn \__planar_left_sep:nnn #1#2#3
+  {
+    \bool_set_true:N \l__planar_closed_bool
+    \int_zero:N \l__planar_tm_int
+    \int_set:Nn \l__planar_cutb_int {#3}
+    \int_zero:N \l__planar_j_int
+    \bool_while_do:nn
+      {
+        \l__planar_closed_bool &&
+        \int_compare_p:nNn \l__planar_j_int < \l__planar_cutb_int
+      }
+      {
+        \int_incr:N \l__planar_j_int
+        \tl_set:Ne \l__planar_p_tl
+          { \__planar_match:nnn {#1} { b } { \l__planar_j_int } }
+        \str_if_eq:eeTF { \tl_head:N \l__planar_p_tl } { t }
+          {
+            \int_compare:nNnTF { \tl_tail:N \l__planar_p_tl } > {#2}
+              { \bool_set_false:N \l__planar_closed_bool }
+              {
+                \int_set:Nn \l__planar_tm_int
+                  { \int_max:nn { \l__planar_tm_int } { \tl_tail:N \l__planar_p_tl } }
+              }
+          }
+          {
+            \int_set:Nn \l__planar_cutb_int
+              { \int_max:nn { \l__planar_cutb_int } { \tl_tail:N \l__planar_p_tl } }
+          }
+      }
+  }
+% The word with the levels #1 and #1 + 1 exchanged; #2 is the code for the
+% exchanged levels.
+\cs_new_protected:Npn \__planar_swap_word:nn #1#2
+  {
+    \seq_clear:N \l__planar_nf_seq
+    \int_step_inline:nnn { 0 } { #1 - 1 }
+      {
+        \__planar_conn_layers:n {##1}
+        \int_compare:nNnT {##1} < { #1 - 1 } { \__planar_disc_layer:n { ##1 + 1 } }
+      }
+    #2
+    \int_step_inline:nnn { #1 + 1 } { \l__planar_R_int }
+      {
+        \int_compare:nNnT {##1} > { #1 + 1 } { \__planar_disc_layer:n {##1} }
+        \__planar_conn_layers:n {##1}
+      }
+  }
+\cs_new_protected:Npn \__planar_swap_left:n #1
+  {
+    \__planar_swap_word:nn {#1}
+      {
+        \__planar_sub_layers:nnnnnnn {#1} { 0 } { \l__planar_tm_int }
+          { 0 } { \l__planar_cutb_int } { 0 }
+          { \l__planar_ubl_int - \l__planar_tm_int + \l__planar_uin_int + \l__planar_ubr_int }
+        \__planar_disc_layer:nVn { \l__planar_lbl_int } \l__planar_lower_tl
+          {
+            \l__planar_cutb_int - \l__planar_lbl_int - \l__planar_lin_int
+            + \l__planar_ubl_int - \l__planar_tm_int + \l__planar_uin_int
+            + \l__planar_ubr_int
+          }
+        \__planar_disc_layer:nVn
+          {
+            \l__planar_cutb_int - \l__planar_lin_int + \l__planar_lout_int
+            + \l__planar_ubl_int - \l__planar_tm_int
+          }
+          \l__planar_upper_tl { \l__planar_ubr_int }
+        \__planar_sub_layers:nnnnnnn {#1}
+          { \l__planar_tm_int } { \prop_item:Ne \l__planar_cu_prop { \int_eval:n {#1} } }
+          { \l__planar_cutb_int } { \prop_item:Ne \l__planar_cv_prop { \int_eval:n {#1} } }
+          { \l__planar_cutb_int - \l__planar_lin_int + \l__planar_lout_int } { 0 }
+      }
+  }
+% The layers of the part of connector #1 between the top points #2 + 1 to #3
+% and the bottom points #4 + 1 to #5, with #6 straight strands on its left
+% and #7 on its right.
+\cs_new_protected:Npn \__planar_sub_layers:nnnnnnn #1#2#3#4#5#6#7
+  {
+    \int_set:Nn \l__planar_tmpc_int { \l__planar_R_int + 1 }
+    \tl_set:Ne \l__planar_cname_tl { \__planar_conn:n { \l__planar_tmpc_int } }
+    \prop_if_exist:cTF { \l__planar_cname_tl }
+      { \prop_clear:c { \l__planar_cname_tl } }
+      { \prop_new:c { \l__planar_cname_tl } }
+    \int_step_inline:nnn { #2 + 1 } {#3}
+      {
+        \prop_put:cee { \l__planar_cname_tl } { t \int_eval:n { ##1 - (#2) } }
+          { \__planar_sub_rename:nne {#2} {#4} { \__planar_match:nnn {#1} { t } {##1} } }
+      }
+    \int_step_inline:nnn { #4 + 1 } {#5}
+      {
+        \prop_put:cee { \l__planar_cname_tl } { b \int_eval:n { ##1 - (#4) } }
+          { \__planar_sub_rename:nne {#2} {#4} { \__planar_match:nnn {#1} { b } {##1} } }
+      }
+    \prop_put:Nee \l__planar_cu_prop { \int_use:N \l__planar_tmpc_int }
+      { \int_eval:n { #3 - (#2) } }
+    \prop_put:Nee \l__planar_cv_prop { \int_use:N \l__planar_tmpc_int }
+      { \int_eval:n { #5 - (#4) } }
+    \seq_set_eq:NN \l__planar_save_seq \l__planar_nf_seq
+    \seq_clear:N \l__planar_nf_seq
+    \__planar_conn_layers:n { \int_use:N \l__planar_tmpc_int }
+    \seq_map_inline:Nn \l__planar_nf_seq
+      {
+        \tl_clear:N \l__planar_layer_tl
+        \__planar_put_ids:n {#6}
+        \tl_put_right:Nn \l__planar_layer_tl {##1}
+        \__planar_put_ids:n {#7}
+        \seq_put_right:NV \l__planar_save_seq \l__planar_layer_tl
+      }
+    \seq_set_eq:NN \l__planar_nf_seq \l__planar_save_seq
+  }
+\cs_new:Npn \__planar_sub_rename:nnn #1#2#3
+  {
+    \tl_head:n {#3}
+    \int_eval:n
+      { \tl_tail:n {#3} - \str_if_eq:eeTF { \tl_head:n {#3} } { t } {#1} {#2} }
+  }
+\cs_generate_variant:Nn \__planar_sub_rename:nnn { nne }
+\cs_generate_variant:Nn \prop_put:Nnn { cee }
+
 % The reduced word.
 \cs_new_protected:Npn \__planar_put_ids:n #1
   { \prg_replicate:nn {#1} { \tl_put_right:NV \l__planar_layer_tl \c__planar_id_tl } }
+% A layer with the generator #2 after #1 and before #3 straight strands.
+\cs_new_protected:Npn \__planar_disc_layer:nnn #1#2#3
+  {
+    \tl_clear:N \l__planar_layer_tl
+    \__planar_put_ids:n {#1}
+    \tl_put_right:Nn \l__planar_layer_tl { {#2} }
+    \__planar_put_ids:n {#3}
+    \seq_put_right:NV \l__planar_nf_seq \l__planar_layer_tl
+  }
+\cs_generate_variant:Nn \__planar_disc_layer:nnn { nV }
+% The layer of disc level #1.
+\cs_new_protected:Npn \__planar_disc_layer:n #1
+  {
+    \prop_get:NeN \l__planar_bitem_prop { \int_eval:n {#1} } \l__planar_item_tl
+    \__planar_disc_layer:nVn { \__planar_bl:n {#1} } \l__planar_item_tl
+      { \__planar_br:n {#1} }
+  }
 \cs_new_protected:Npn \__planar_put_gen:n #1
   {
     \tl_put_right:Ne \l__planar_layer_tl
@@ -958,20 +1225,18 @@
   }
 \cs_new_protected:Npn \__planar_nf_build:
   {
+    \__planar_nf_layers:
+    \__planar_compact:
+    \__planar_nf_string:
+  }
+\cs_new_protected:Npn \__planar_nf_layers:
+  {
     \seq_clear:N \l__planar_nf_seq
     \int_step_inline:nnn { 0 } { \l__planar_R_int }
       {
         \__planar_conn_layers:n {##1}
         \int_compare:nNnT {##1} < \l__planar_R_int
-          {
-            \tl_clear:N \l__planar_layer_tl
-            \__planar_put_ids:n { \__planar_bl:n { ##1 + 1 } }
-            \prop_get:NeN \l__planar_bitem_prop { \int_eval:n { ##1 + 1 } }
-              \l__planar_item_tl
-            \tl_put_right:Ne \l__planar_layer_tl { { \exp_not:V \l__planar_item_tl } }
-            \__planar_put_ids:n { \__planar_br:n { ##1 + 1 } }
-            \seq_put_right:NV \l__planar_nf_seq \l__planar_layer_tl
-          }
+          { \__planar_disc_layer:n { ##1 + 1 } }
       }
     \seq_if_empty:NT \l__planar_nf_seq
       {
@@ -979,8 +1244,6 @@
         \__planar_put_ids:n { \l__planar_m_int }
         \seq_put_right:NV \l__planar_nf_seq \l__planar_layer_tl
       }
-    \__planar_compact:
-    \__planar_nf_string:
   }
 % Nesting depth of the cups (#2 = t) or caps (#2 = b) of connector #1 with
 % #3 points on that side.

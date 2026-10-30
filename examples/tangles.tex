@@ -1,0 +1,108 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1.8cm]{geometry}
+\usepackage{amsmath}
+\usepackage{planaralgebra}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+
+\newcommand\rel[1]{\par\medskip\textbf{#1}\par\smallskip}
+
+\PAdefine{T}{\PA{2,4}{coev, id, id}\PA{4,2}{id, ev, S(1,1)}}
+
+\begin{document}
+
+\begin{center}
+  \Large Planar tangles and planar algebras
+\end{center}
+
+Every picture is a chain of \verb|\PA| layers drawn by
+\texttt{planaralgebra}; the reduced forms are computed by the package.
+
+\rel{A planar tangle with three input discs}
+\[
+  \PA{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev}
+  \qquad
+  \PA[horizontal]{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev}
+\]
+
+\rel{Composition of tangles}
+{\paset{scale=0.85}
+\[
+  \PA[numbers]{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev}
+  \;\circ_3\;
+  \PA{2,4}{coev, id, id}\PA{4,2}{id, ev, S(1,1)}
+  \;=\;
+  \PA[insert={3=T}]{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev}
+  \;=\;
+  \PA[insert={3=T}, reduce]{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev}
+\]}
+
+\rel{Loops and isotopy}
+\[
+  \PA{0,2}{coev}\PA{2,0}{ev} = \delta
+  \quad
+  \PA{1,3}{id, coev}\PA{3,1}{ev, id} = \PA{1,1}{id} = \PA{1,3}{coev, id}\PA{3,1}{id, ev}
+  \quad
+  \PA{2,4}{id, id, coev}\PA{4,2}{id, ev, id}\PA{2,2}{x}
+  = \PA[reduce]{2,4}{id, id, coev}\PA{4,2}{id, ev, id}\PA{2,2}{x}
+\]
+
+\rel{The Temperley--Lieb relations}
+\[
+  e_1 = \PA{2,0}{ev}\PA{0,2}{coev}
+  \qquad
+  e_1^2 \;=\; \PA{2,0}{ev}\PA{0,2}{coev}\PA{2,0}{ev}\PA{0,2}{coev}
+  \;=\; \PA[reduce]{2,0}{ev}\PA{0,2}{coev}\PA{2,0}{ev}\PA{0,2}{coev}
+\]
+\[
+  e_1 e_2 e_1 \;=\; \PA[length=0.6]{3,1}{ev, id}\PA{1,3}{coev, id}\PA{3,1}{id, ev}\PA{1,3}{id, coev}
+    \PA{3,1}{ev, id}\PA{1,3}{coev, id}
+  \;=\; \PA[reduce]{3,1}{ev, id}\PA{1,3}{coev, id}\PA{3,1}{id, ev}\PA{1,3}{id, coev}
+    \PA{3,1}{ev, id}\PA{1,3}{coev, id}
+  \;=\; e_1
+\]
+
+\rel{Multiplication, trace and the conditional expectation}
+\[
+  x \cdot y = \PA{2,2}{x}\PA{2,2}{y}
+  \qquad
+  E(x) = \PA{1,3}{id, coev}\PA{3,3}{x(2,2), id}\PA{3,1}{id, ev}
+  = \PA[reduce]{1,3}{id, coev}\PA{3,3}{x(2,2), id}\PA{3,1}{id, ev}
+\]
+\[
+  \operatorname{tr}(x) = \PA{0,2}{coev}\PA{2,4}{id, coev, id}\PA{4,4}{x(2,2), id, id}
+    \PA{4,2}{id, ev, id}\PA{2,0}{ev}
+  = \PA[reduce]{0,2}{coev}\PA{2,4}{id, coev, id}\PA{4,4}{x(2,2), id, id}
+    \PA{4,2}{id, ev, id}\PA{2,0}{ev}
+\]
+
+\rel{Sliding discs past each other}
+\[
+  \PA{2,2}{A(1,1), id}\PA{2,2}{id, B(1,1)}
+  = \PA{2,2}{id, B(1,1)}\PA{2,2}{A(1,1), id}
+  = \PA{2,2}{A(1,1), B(1,1)}
+  = \PA[reduce]{2,2}{id, B(1,1)}\PA{2,2}{A(1,1), id}
+\]
+
+\newpage
+
+\begin{center}
+  \Large The same, read from left to right
+\end{center}
+
+\paset{horizontal, labels}
+
+\rel{A planar tangle with three input discs}
+\[
+  \PA{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev}
+  \qquad
+  \PA[negative, outer=rectangle]{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev}
+\]
+
+\rel{A loop next to a disc}
+\[
+  \PA{0,2}{coev}\PA{2,0}{ev}\PA{0,4}{coev, coev}\PA{4,4}{id, x(2,2), id}\PA{4,0}{ev, ev}
+  = \PA[reduce]{0,2}{coev}\PA{2,0}{ev}\PA{0,4}{coev, coev}\PA{4,4}{id, x(2,2), id}\PA{4,0}{ev, ev}
+\]
+
+\end{document}

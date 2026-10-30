@@ -1,0 +1,3006 @@
+% planaralgebra.sty -- planar tangles and planar algebra diagrams with TikZ
+%
+% Copyright (C) 2026
+% This work may be distributed and/or modified under the conditions of the
+% LaTeX Project Public License, version 1.3c or later.
+%
+\NeedsTeXFormat{LaTeX2e}[2020/10/01]
+\RequirePackage{tikz}
+\ProvidesExplPackage{planaralgebra}{2026/10/30}{1.0}
+  {Planar tangles and planar algebra diagrams}
+
+% ---------------------------------------------------------------------------
+% Variants and messages
+% ---------------------------------------------------------------------------
+\cs_generate_variant:Nn \prop_put:Nnn { Nee , Nen , Nne , NnV , NeV , NVV , cnV , cVn , cne , cVV }
+\cs_generate_variant:Nn \prop_item:Nn { Ne , NV }
+\cs_generate_variant:Nn \prop_get:NnN { Ne , NV }
+\prg_generate_conditional_variant:Nnn \prop_get:NnN { Ne , NV } { T , F , TF }
+\prg_generate_conditional_variant:Nnn \prop_if_in:Nn { Ne , NV } { T , F , TF }
+\cs_generate_variant:Nn \prop_remove:Nn { ce }
+\cs_generate_variant:Nn \seq_put_right:Nn { Ne }
+\cs_generate_variant:Nn \clist_put_right:Nn { Ne }
+\cs_generate_variant:Nn \clist_set:Nn { Ne , NV }
+\cs_generate_variant:Nn \str_case:nnF { e }
+\cs_generate_variant:Nn \msg_error:nnnn { nnVe , nnne , nnee }
+\cs_generate_variant:Nn \msg_warning:nnn { nne }
+\cs_generate_variant:Nn \msg_error:nnnnnn { nneeee }
+\cs_generate_variant:Nn \msg_error:nnnnn { nneee }
+
+\regex_const:Nn \c__planar_name_regex
+  { \A \s* ([A-Za-z]+) \s* (?: \^ \s* \{? \s* ([0-9]+) \s* \}? )? \s* \Z }
+\regex_const:Nn \c__planar_counts_regex
+  { \A \s* ([0-9]+) \s* [,;/] \s* ([0-9]+) \s* \Z }
+\regex_const:Nn \c__planar_paren_regex
+  { \( \s* ([0-9]+) \s* [,;/] \s* ([0-9]+) \s* \) }
+\regex_const:Nn \c__planar_tail_regex
+  { \s* \( ([0-9]+) ; ([0-9]+) \) \s* (?: \^ \s* \{? \s* ([0-9]+) \s* \}? )? \s* \Z }
+
+\msg_new:nnn { planaralgebra } { box-arity }
+  {
+    Cannot~tell~how~many~strands~the~input~disc~`#1'~in~layer~#2~has.~
+    Write~it~as~`#1(a,b)'~(a~strands~on~the~input~side,~b~on~the~
+    output~side),~or~make~it~the~only~disc~of~a~layer~whose~counts~
+    are~given.~(The~generators~are~id,~ev~and~coev.)
+  }
+\msg_new:nnn { planaralgebra } { bad-counts }
+  {
+    The~first~argument~of~layer~#2~must~be~`m,n'~(numbers~of~input~and~
+    output~strands)~or~empty,~not~`#1'.
+  }
+\msg_new:nnn { planaralgebra } { arity-mismatch }
+  {
+    Layer~#1~is~declared~as~`#2',~but~its~generators~have~
+    #3~input~and~#4~output~strands.
+  }
+\msg_new:nnn { planaralgebra } { seam-mismatch }
+  {
+    Cannot~compose:~layer~#1~ends~with~#2~strands~but~layer~#3~starts~
+    with~#4.
+  }
+\msg_new:nnn { planaralgebra } { undefined-tangle }
+  { No~tangle~called~`#1'~has~been~defined~with~\iow_char:N\\PAdefine. }
+\msg_new:nnn { planaralgebra } { insert-mismatch }
+  {
+    Cannot~insert~`#1'~into~input~disc~#2:~the~disc~has~#3~strands,~
+    the~tangle~#4.
+  }
+\msg_new:nnn { planaralgebra } { no-shading }
+  {
+    A~disc~of~this~tangle~has~an~odd~number~of~strands,~so~the~regions~
+    cannot~be~shaded~in~a~checkerboard~fashion.~The~tangle~is~drawn~
+    without~shading.
+  }
+\msg_new:nnn { planaralgebra } { max-states }
+  {
+    The~normal~form~was~chosen~among~the~first~#1~arrangements~of~the~
+    input~discs~only,~so~isotopic~tangles~may~get~different~normal~
+    forms.~Raise~the~key~`max~states'~to~search~further.
+  }
+\msg_new:nnn { planaralgebra } { standalone-formula }
+  {
+    A~diagram~is~used~in~a~formula~that~the~`standalone'~class~does~not~
+    turn~into~a~page:~with~its~`tikz'~option~only~TikZ~pictures,~
+    \iow_char:N\\[...\iow_char:N\\]~and~\iow_char:N\\(...\iow_char:N\\)~
+    become~(cropped)~pages.~Write~the~formula~with~
+    \iow_char:N\\[...\iow_char:N\\]~or~\iow_char:N\\(...\iow_char:N\\),~
+    or~use~\iow_char:N\\documentclass[varwidth]{standalone}~instead.
+  }
+
+% ---------------------------------------------------------------------------
+% Generators
+%
+% An item of a layer is stored as {type}{a}{b}{label}: a strands on the input
+% side (the top in vertical diagrams), b on the output side.  The types are
+% id (1,1), ev (2,0: a cup), coev (0,2: a cap) and box (an input disc).
+% ---------------------------------------------------------------------------
+\prop_const_from_keyval:Nn \c__planar_alias_prop
+  {
+    id = id , line = id , strand = id ,
+    ev = ev , cup = ev , pair = ev ,
+    coev = coev , cap = coev , copair = coev ,
+  }
+\prop_const_from_keyval:Nn \c__planar_gin_prop { id = 1 , ev = 2 , coev = 0 }
+\prop_const_from_keyval:Nn \c__planar_gout_prop { id = 1 , ev = 0 , coev = 2 }
+\tl_const:Nn \c__planar_id_tl { { {id} {1} {1} {} } }
+
+\cs_new:Npn \__planar_type:n #1 { \use_i:nnnn #1 }
+\cs_new:Npn \__planar_in:n #1 { \use_ii:nnnn #1 }
+\cs_new:Npn \__planar_out:n #1 { \use_iii:nnnn #1 }
+\cs_new:Npn \__planar_in_plus:n #1 { + \use_ii:nnnn #1 }
+\cs_new:Npn \__planar_out_plus:n #1 { + \use_iii:nnnn #1 }
+\cs_new:Npn \__planar_layer_in:n #1
+  { \int_eval:n { 0 \tl_map_function:nN {#1} \__planar_in_plus:n } }
+\cs_new:Npn \__planar_layer_out:n #1
+  { \int_eval:n { 0 \tl_map_function:nN {#1} \__planar_out_plus:n } }
+\cs_generate_variant:Nn \__planar_layer_in:n { V , e }
+\cs_generate_variant:Nn \__planar_layer_out:n { V , e }
+
+% ---------------------------------------------------------------------------
+% Variables
+% ---------------------------------------------------------------------------
+\clist_map_inline:nn
+  {
+    layer , a , b , m , n , prev , unknown , N , i , j , k , idx , out , len ,
+    through , box , loops , R , cur , before , strand , conn , D , T , pa , pb ,
+    count , c , tm , uin , uout , ubl , ubr , lin , lout , lbl , lbr , tmpc ,
+    total , cutb , maxstates
+  }
+  { \int_new:c { l__planar_ #1 _int } }
+\int_new:N \g__planar_loops_int
+\int_new:N \g__planar_boxes_int
+\int_new:N \g__planar_top_int
+\int_new:N \g__planar_bottom_int
+
+\clist_map_inline:nn
+  {
+    s , L , boxmin , margin , gap , scale , off , xc , uc , A , B , F , e ,
+    wd , ht , acc , mean , xmin , xmax , hw , hh , w , r , bw , bh , cx , cy ,
+    lamL , lamR , zero , pend , lastR , tmp , d , phi , ax , au , dl , hwc ,
+    star , pagew , pageh
+  }
+  { \fp_new:c { l__planar_ #1 _fp } }
+\fp_const:Nn \c__planar_free_fp { 0.25 }
+\fp_const:Nn \c__planar_legroom_fp { 0.24 }
+\fp_const:Nn \c__planar_clear_fp { 0.1 }
+\fp_const:Nn \c__planar_ext_fp { 0.3 }
+\fp_const:Nn \c__planar_clip_fp { 0.01 }
+
+\clist_map_inline:nn
+  {
+    vertical , reverse , reduce , coefficient , shading , negative , stars ,
+    numbers , labels , names , expand , error , item_error , declared ,
+    capture , first , changed , paired , any , merge , have , shade ,
+    has_one , has_two , zero_one , zero_two , mirror , closed
+  }
+  { \bool_new:c { l__planar_ #1 _bool } }
+\bool_new:N \g__planar_chain_bool
+
+\clist_map_inline:nn
+  {
+    layer , tmp , tmpb , name , canon , count , label , ta , tb , outer ,
+    boxshape , loop , separator , baseline , tikz , opts , draw , x , y , ox ,
+    oy , p , q , cname , item , word , cur , merged , prefix , coeff , last ,
+    sig , shade , strings , boxes , labelfont , path , sub , closing , caption ,
+    pt , gen , upper , lower , snap , nbr , bestword
+  }
+  { \tl_new:c { l__planar_ #1 _tl } }
+\str_new:N \l__planar_nf_str
+\str_new:N \l__planar_key_str
+\str_new:N \l__planar_best_str
+\str_new:N \g__planar_nf_str
+
+\clist_map_inline:nn
+  {
+    layers , items , match , state , tmpa , tmpb , nf , names , pred , predw ,
+    ideal , weight , bs , bw , bn , fpred , fw , G , legs , present , orig ,
+    save , words
+  }
+  { \seq_new:c { l__planar_ #1 _seq } }
+
+\clist_map_inline:nn
+  { items , tmp , src , list , gap , top , bot , pos }
+  { \clist_new:c { l__planar_ #1 _clist } }
+
+\clist_map_inline:nn
+  {
+    count , pos , gaps , g , other , bot , cu , cv , bl , br , bitem , depth ,
+    bwidth , bheight , bx , by , h , u , insert , tmp , new , number , seen
+  }
+  { \prop_new:c { l__planar_ #1 _prop } }
+\prop_new:N \g__planar_defs_prop
+
+\box_new:N \l__planar_tmp_box
+
+% ---------------------------------------------------------------------------
+% Options
+% ---------------------------------------------------------------------------
+\keys_define:nn { planaralgebra }
+  {
+    orientation .choice: ,
+    orientation / vertical .code:n =
+      \bool_set_true:N \l__planar_vertical_bool ,
+    orientation / horizontal .code:n =
+      \bool_set_false:N \l__planar_vertical_bool ,
+    vertical .meta:n = { orientation = vertical } ,
+    vertical .value_forbidden:n = true ,
+    horizontal .meta:n = { orientation = horizontal } ,
+    horizontal .value_forbidden:n = true ,
+    reverse .bool_set:N = \l__planar_reverse_bool ,
+    reverse .default:n = true ,
+
+    reduce .bool_set:N = \l__planar_reduce_bool ,
+    reduce .default:n = true ,
+    coefficient .bool_set:N = \l__planar_coefficient_bool ,
+    coefficient .default:n = true ,
+    loop~value .tl_set:N = \l__planar_loop_tl ,
+    max~states .int_set:N = \l__planar_maxstates_int ,
+    insert .code:n =
+      \prop_put_from_keyval:Nn \l__planar_insert_prop {#1} ,
+    expand .bool_set:N = \l__planar_expand_bool ,
+    expand .default:n = true ,
+
+    shading .bool_set:N = \l__planar_shading_bool ,
+    shading .default:n = true ,
+    sign .choice: ,
+    sign / + .code:n = \bool_set_false:N \l__planar_negative_bool ,
+    sign / - .code:n = \bool_set_true:N \l__planar_negative_bool ,
+    positive .meta:n = { sign = + } ,
+    positive .value_forbidden:n = true ,
+    negative .meta:n = { sign = - } ,
+    negative .value_forbidden:n = true ,
+    outer .choices:nn = { circle , ellipse , rectangle , none }
+      { \tl_set_eq:NN \l__planar_outer_tl \l_keys_choice_tl } ,
+    box~shape .choices:nn = { circle , rectangle }
+      { \tl_set_eq:NN \l__planar_boxshape_tl \l_keys_choice_tl } ,
+    stars .bool_set:N = \l__planar_stars_bool ,
+    stars .default:n = true ,
+    numbers .bool_set:N = \l__planar_numbers_bool ,
+    numbers .default:n = true ,
+    labels .bool_set:N = \l__planar_labels_bool ,
+    labels .default:n = true ,
+    names .bool_set:N = \l__planar_names_bool ,
+    names .default:n = true ,
+    separator .tl_set:N = \l__planar_separator_tl ,
+    list .code:n =
+      {
+        \tl_set:Nn \l__planar_tmp_tl {#1}
+        \regex_replace_all:NnN \c__planar_paren_regex { (\1;\2) }
+          \l__planar_tmp_tl
+        \clist_set:NV \l__planar_list_clist \l__planar_tmp_tl
+      } ,
+
+    strand~sep .fp_set:N = \l__planar_s_fp ,
+    length .fp_set:N = \l__planar_L_fp ,
+    box~size .fp_set:N = \l__planar_boxmin_fp ,
+    margin .fp_set:N = \l__planar_margin_fp ,
+    gap .fp_set:N = \l__planar_gap_fp ,
+    label~font .tl_set:N = \l__planar_labelfont_tl ,
+
+    scale .code:n =
+      {
+        \fp_set:Nn \l__planar_scale_fp {#1}
+        \tl_put_right:Nn \l__planar_tikz_tl { , scale = #1 }
+      } ,
+    baseline .tl_set:N = \l__planar_baseline_tl ,
+    tikz .code:n = \tl_put_right:Nn \l__planar_tikz_tl { , #1 } ,
+    shade .code:n =
+      \tikzset { pa~shaded/.append~style = { fill = #1 } } ,
+    shade~style .code:n =
+      \tikzset { pa~shaded/.append~style = {#1} } ,
+    string~style .code:n =
+      \tikzset { pa~string/.append~style = {#1} } ,
+    box~style .code:n =
+      \tikzset { pa~box/.append~style = {#1} } ,
+    outer~style .code:n =
+      \tikzset { pa~outer/.append~style = {#1} } ,
+    star~style .code:n =
+      \tikzset { pa~star/.append~style = {#1} } ,
+  }
+
+\keys_set:nn { planaralgebra }
+  {
+    vertical ,
+    reverse = false ,
+    reduce = false ,
+    coefficient = true ,
+    loop~value = \delta ,
+    max~states = 100 ,
+    expand = false ,
+    shading = true ,
+    sign = + ,
+    outer = circle ,
+    box~shape = circle ,
+    stars = true ,
+    numbers = false ,
+    labels = false ,
+    names = false ,
+    separator = ,
+    list = { id , ev , coev , x(1,1) , x(2,2) } ,
+    strand~sep = 0.5 ,
+    length = 0.8 ,
+    box~size = 0.22 ,
+    margin = 0.3 ,
+    gap = 0.3 ,
+    label~font = \small ,
+    baseline = -0.5ex ,
+  }
+\fp_set:Nn \l__planar_scale_fp { 1 }
+
+% ---------------------------------------------------------------------------
+% Reading layers:  \PA{2,2}{id, T(1,1)}
+% ---------------------------------------------------------------------------
+\cs_new_protected:Npn \__planar_start:
+  {
+    \seq_clear:N \l__planar_layers_seq
+    \int_zero:N \l__planar_layer_int
+    \int_zero:N \l__planar_prev_int
+    \bool_set_false:N \l__planar_error_bool
+  }
+
+\cs_new_protected:Npn \__planar_add_layer:nn #1#2
+  {
+    \int_incr:N \l__planar_layer_int
+    \seq_clear:N \l__planar_items_seq
+    \int_zero:N \l__planar_a_int
+    \int_zero:N \l__planar_b_int
+    \int_zero:N \l__planar_unknown_int
+    \bool_set_false:N \l__planar_item_error_bool
+    \tl_set:Nn \l__planar_tmp_tl {#2}
+    \regex_replace_all:NnN \c__planar_paren_regex { (\1;\2) } \l__planar_tmp_tl
+    \clist_set:NV \l__planar_items_clist \l__planar_tmp_tl
+    \clist_map_inline:Nn \l__planar_items_clist { \__planar_parse_item:n {##1} }
+    \bool_set_false:N \l__planar_declared_bool
+    \tl_if_blank:nF {#1}
+      {
+        \exp_args:NNe \regex_extract_once:NnNTF \c__planar_counts_regex
+          { \tl_to_str:n {#1} } \l__planar_match_seq
+          {
+            \bool_set_true:N \l__planar_declared_bool
+            \int_set:Nn \l__planar_m_int { \seq_item:Nn \l__planar_match_seq { 2 } }
+            \int_set:Nn \l__planar_n_int { \seq_item:Nn \l__planar_match_seq { 3 } }
+          }
+          {
+            \bool_set_true:N \l__planar_error_bool
+            \bool_set_true:N \l__planar_item_error_bool
+            \msg_error:nnne { planaralgebra } { bad-counts } {#1}
+              { \int_use:N \l__planar_layer_int }
+          }
+      }
+    \__planar_infer:
+    \tl_clear:N \l__planar_layer_tl
+    \seq_map_inline:Nn \l__planar_items_seq { \__planar_finalize:nnnn ##1 }
+    \bool_lazy_and:nnT
+      { \l__planar_declared_bool } { ! \l__planar_item_error_bool }
+      {
+        \bool_lazy_or:nnT
+          { \int_compare_p:n { \l__planar_m_int != \l__planar_a_int } }
+          { \int_compare_p:n { \l__planar_n_int != \l__planar_b_int } }
+          {
+            \bool_set_true:N \l__planar_error_bool
+            \msg_error:nneeee { planaralgebra } { arity-mismatch }
+              { \int_use:N \l__planar_layer_int } { \tl_to_str:n {#1} }
+              { \int_use:N \l__planar_a_int } { \int_use:N \l__planar_b_int }
+          }
+      }
+    \bool_lazy_and:nnT
+      { \int_compare_p:nNn \l__planar_layer_int > 1 }
+      { ! \l__planar_item_error_bool }
+      {
+        \int_compare:nNnF \l__planar_prev_int = \l__planar_a_int
+          {
+            \bool_set_true:N \l__planar_error_bool
+            \msg_error:nneeee { planaralgebra } { seam-mismatch }
+              { \int_eval:n { \l__planar_layer_int - 1 } }
+              { \int_use:N \l__planar_prev_int }
+              { \int_use:N \l__planar_layer_int }
+              { \int_use:N \l__planar_a_int }
+          }
+      }
+    \int_set_eq:NN \l__planar_prev_int \l__planar_b_int
+    \seq_put_right:NV \l__planar_layers_seq \l__planar_layer_tl
+  }
+
+\cs_new_protected:Npn \__planar_parse_item:n #1
+  {
+    \exp_args:NNe \regex_extract_once:NnNTF \c__planar_name_regex
+      { \tl_to_str:n {#1} } \l__planar_match_seq
+      {
+        \tl_set:Ne \l__planar_name_tl { \seq_item:Nn \l__planar_match_seq { 2 } }
+        \prop_get:NVNTF \c__planar_alias_prop \l__planar_name_tl
+          \l__planar_canon_tl
+          {
+            \tl_set:Ne \l__planar_count_tl { \seq_item:Nn \l__planar_match_seq { 3 } }
+            \tl_if_empty:NT \l__planar_count_tl
+              { \tl_set:Nn \l__planar_count_tl { 1 } }
+            \prg_replicate:nn { \l__planar_count_tl }
+              {
+                \seq_put_right:Ne \l__planar_items_seq
+                  {
+                    { \l__planar_canon_tl }
+                    { \prop_item:NV \c__planar_gin_prop \l__planar_canon_tl }
+                    { \prop_item:NV \c__planar_gout_prop \l__planar_canon_tl }
+                    { }
+                  }
+              }
+            \int_add:Nn \l__planar_a_int
+              {
+                \l__planar_count_tl *
+                \prop_item:NV \c__planar_gin_prop \l__planar_canon_tl
+              }
+            \int_add:Nn \l__planar_b_int
+              {
+                \l__planar_count_tl *
+                \prop_item:NV \c__planar_gout_prop \l__planar_canon_tl
+              }
+          }
+          { \__planar_parse_box:n {#1} }
+      }
+      { \__planar_parse_box:n {#1} }
+  }
+
+% An input disc: `label(a,b)' (the comma has become `;' by now) or `label'.
+\cs_new_protected:Npn \__planar_parse_box:n #1
+  {
+    \tl_set:Nn \l__planar_label_tl {#1}
+    \regex_extract_once:NnNTF \c__planar_tail_regex {#1} \l__planar_match_seq
+      {
+        \regex_replace_once:NnN \c__planar_tail_regex { } \l__planar_label_tl
+        \tl_trim_spaces:N \l__planar_label_tl
+        \tl_set:Ne \l__planar_ta_tl { \seq_item:Nn \l__planar_match_seq { 2 } }
+        \tl_set:Ne \l__planar_tb_tl { \seq_item:Nn \l__planar_match_seq { 3 } }
+        \tl_set:Ne \l__planar_count_tl { \seq_item:Nn \l__planar_match_seq { 4 } }
+        \tl_if_empty:NT \l__planar_count_tl
+          { \tl_set:Nn \l__planar_count_tl { 1 } }
+        \prg_replicate:nn { \l__planar_count_tl }
+          {
+            \seq_put_right:Ne \l__planar_items_seq
+              {
+                { box } { \int_eval:n { \l__planar_ta_tl } }
+                { \int_eval:n { \l__planar_tb_tl } }
+                { \exp_not:V \l__planar_label_tl }
+              }
+          }
+        \int_add:Nn \l__planar_a_int { \l__planar_count_tl * \l__planar_ta_tl }
+        \int_add:Nn \l__planar_b_int { \l__planar_count_tl * \l__planar_tb_tl }
+      }
+      {
+        \tl_trim_spaces:N \l__planar_label_tl
+        \int_incr:N \l__planar_unknown_int
+        \seq_put_right:Ne \l__planar_items_seq
+          { { box } { ? } { ? } { \exp_not:V \l__planar_label_tl } }
+      }
+  }
+
+% A single disc without counts takes what the declared counts leave over.
+\cs_new_protected:Npn \__planar_infer:
+  {
+    \int_compare:nNnT \l__planar_unknown_int > 0
+      {
+        \bool_lazy_all:nTF
+          {
+            { \int_compare_p:nNn \l__planar_unknown_int = 1 }
+            { \l__planar_declared_bool }
+            { \int_compare_p:nNn \l__planar_m_int > { \l__planar_a_int - 1 } }
+            { \int_compare_p:nNn \l__planar_n_int > { \l__planar_b_int - 1 } }
+          }
+          {
+            \tl_set:Ne \l__planar_ta_tl
+              { \int_eval:n { \l__planar_m_int - \l__planar_a_int } }
+            \tl_set:Ne \l__planar_tb_tl
+              { \int_eval:n { \l__planar_n_int - \l__planar_b_int } }
+            \int_set_eq:NN \l__planar_a_int \l__planar_m_int
+            \int_set_eq:NN \l__planar_b_int \l__planar_n_int
+          }
+          {
+            \bool_set_true:N \l__planar_error_bool
+            \bool_set_true:N \l__planar_item_error_bool
+            \seq_map_inline:Nn \l__planar_items_seq
+              { \__planar_unknown_error:nnnn ##1 }
+          }
+      }
+  }
+\cs_new_protected:Npn \__planar_unknown_error:nnnn #1#2#3#4
+  {
+    \str_if_eq:nnT {#2} { ? }
+      {
+        \msg_error:nnee { planaralgebra } { box-arity } { \tl_to_str:n {#4} }
+          { \int_use:N \l__planar_layer_int }
+      }
+  }
+\cs_new_protected:Npn \__planar_finalize:nnnn #1#2#3#4
+  {
+    \str_if_eq:nnTF {#2} { ? }
+      {
+        \tl_put_right:Ne \l__planar_layer_tl
+          { { {#1} { \l__planar_ta_tl } { \l__planar_tb_tl } { \exp_not:n {#4} } } }
+      }
+      { \tl_put_right:Nn \l__planar_layer_tl { { {#1} {#2} {#3} {#4} } } }
+  }
+
+% Number of strands on every seam: seam 0 is the input, seam k the output of
+% layer k.
+\cs_new_protected:Npn \__planar_counts:
+  {
+    \prop_clear:N \l__planar_count_prop
+    \int_set:Nn \l__planar_N_int { \seq_count:N \l__planar_layers_seq }
+    \prop_put:Nnn \l__planar_count_prop { 0 } { 0 }
+    \seq_map_indexed_inline:Nn \l__planar_layers_seq
+      {
+        \int_compare:nNnT {##1} = 1
+          { \prop_put:Nne \l__planar_count_prop { 0 } { \__planar_layer_in:n {##2} } }
+        \prop_put:Nne \l__planar_count_prop {##1} { \__planar_layer_out:n {##2} }
+      }
+  }
+\cs_new:Npn \__planar_count:n #1
+  { \prop_item:Ne \l__planar_count_prop { \int_eval:n {#1} } }
+\cs_new:Npn \__planar_layer:n #1
+  { \seq_item:Nn \l__planar_layers_seq {#1} }
+
+% ---------------------------------------------------------------------------
+% Operadic composition: \PAdefine and the keys insert and expand
+%
+% A disc whose tangle has N layers turns its layer into N layers: the other
+% generators act in the first one and are continued by straight strands.
+% ---------------------------------------------------------------------------
+\cs_new_protected:Npn \__planar_substitute:
+  {
+    \prop_if_empty:NF \l__planar_insert_prop
+      { \__planar_substitute_once:n { insert } }
+    \bool_if:NT \l__planar_expand_bool
+      {
+        \int_zero:N \l__planar_c_int
+        \bool_set_true:N \l__planar_changed_bool
+        \bool_while_do:nn
+          {
+            \l__planar_changed_bool && ! \l__planar_error_bool
+            && \int_compare_p:nNn \l__planar_c_int < 8
+          }
+          {
+            \int_incr:N \l__planar_c_int
+            \__planar_substitute_once:n { expand }
+          }
+      }
+  }
+\cs_new_protected:Npn \__planar_substitute_once:n #1
+  {
+    \bool_set_false:N \l__planar_changed_bool
+    \int_zero:N \l__planar_box_int
+    \seq_clear:N \l__planar_tmpb_seq
+    \seq_map_inline:Nn \l__planar_layers_seq
+      {
+        \seq_clear:N \l__planar_names_seq
+        \int_zero:N \l__planar_T_int
+        \bool_set_false:N \l__planar_any_bool
+        \tl_map_inline:nn {##1}
+          {
+            \tl_clear:N \l__planar_name_tl
+            \str_if_eq:eeT { \__planar_type:n {####1} } { box }
+              {
+                \int_incr:N \l__planar_box_int
+                \str_if_eq:nnTF {#1} { insert }
+                  {
+                    \prop_get:NeNF \l__planar_insert_prop
+                      { \int_use:N \l__planar_box_int } \l__planar_name_tl
+                      { \tl_clear:N \l__planar_name_tl }
+                  }
+                  {
+                    \tl_set:Ne \l__planar_name_tl
+                      { \exp_args:No \tl_to_str:n { \use_iv:nnnn ####1 } }
+                    \prop_if_in:NVF \g__planar_defs_prop \l__planar_name_tl
+                      { \tl_clear:N \l__planar_name_tl }
+                  }
+                \tl_trim_spaces:N \l__planar_name_tl
+              }
+            \tl_if_empty:NF \l__planar_name_tl
+              { \__planar_check_insert:n {####1} }
+            \seq_put_right:NV \l__planar_names_seq \l__planar_name_tl
+          }
+        \bool_if:NTF \l__planar_any_bool
+          {
+            \bool_set_true:N \l__planar_changed_bool
+            \int_step_inline:nn { \l__planar_T_int }
+              { \__planar_sublayer:nn {####1} {##1} }
+          }
+          { \seq_put_right:Nn \l__planar_tmpb_seq {##1} }
+      }
+    \seq_set_eq:NN \l__planar_layers_seq \l__planar_tmpb_seq
+  }
+\cs_new_protected:Npn \__planar_check_insert:n #1
+  {
+    \prop_get:NVNTF \g__planar_defs_prop \l__planar_name_tl \l__planar_word_tl
+      {
+        \tl_set:Ne \l__planar_tmp_tl { \tl_item:Nn \l__planar_word_tl { 1 } }
+        \int_set:Nn \l__planar_a_int { \__planar_layer_in:V \l__planar_tmp_tl }
+        \tl_set:Ne \l__planar_tmp_tl { \tl_item:Nn \l__planar_word_tl { -1 } }
+        \int_set:Nn \l__planar_b_int { \__planar_layer_out:V \l__planar_tmp_tl }
+        \bool_lazy_or:nnTF
+          { \int_compare_p:n { \l__planar_a_int != \__planar_in:n {#1} } }
+          { \int_compare_p:n { \l__planar_b_int != \__planar_out:n {#1} } }
+          {
+            \bool_set_true:N \l__planar_error_bool
+            \msg_error:nneeee { planaralgebra } { insert-mismatch }
+              { \l__planar_name_tl } { \int_use:N \l__planar_box_int }
+              { \__planar_in:n {#1} , \__planar_out:n {#1} }
+              { \int_use:N \l__planar_a_int , \int_use:N \l__planar_b_int }
+            \tl_clear:N \l__planar_name_tl
+          }
+          {
+            \bool_set_true:N \l__planar_any_bool
+            \int_set:Nn \l__planar_T_int
+              { \int_max:nn { \l__planar_T_int } { \tl_count:N \l__planar_word_tl } }
+          }
+      }
+      {
+        \bool_set_true:N \l__planar_error_bool
+        \msg_error:nnV { planaralgebra } { undefined-tangle } \l__planar_name_tl
+        \tl_clear:N \l__planar_name_tl
+      }
+  }
+\cs_generate_variant:Nn \msg_error:nnn { nnV }
+% Sublayer #1 of the layer #2.
+\cs_new_protected:Npn \__planar_sublayer:nn #1#2
+  {
+    \tl_clear:N \l__planar_sub_tl
+    \int_zero:N \l__planar_i_int
+    \tl_map_inline:nn {#2}
+      {
+        \int_incr:N \l__planar_i_int
+        \tl_set:Ne \l__planar_name_tl
+          { \seq_item:Nn \l__planar_names_seq { \l__planar_i_int } }
+        \tl_if_empty:NTF \l__planar_name_tl
+          {
+            \int_compare:nNnTF {#1} = 1
+              { \tl_put_right:Nn \l__planar_sub_tl { {##1} } }
+              {
+                \prg_replicate:nn { \__planar_out:n {##1} }
+                  { \tl_put_right:NV \l__planar_sub_tl \c__planar_id_tl }
+              }
+          }
+          {
+            \prop_get:NVN \g__planar_defs_prop \l__planar_name_tl \l__planar_word_tl
+            \int_compare:nNnTF {#1} > { \tl_count:N \l__planar_word_tl }
+              {
+                \prg_replicate:nn { \__planar_out:n {##1} }
+                  { \tl_put_right:NV \l__planar_sub_tl \c__planar_id_tl }
+              }
+              {
+                \tl_put_right:Ne \l__planar_sub_tl
+                  { \tl_item:Nn \l__planar_word_tl {#1} }
+              }
+          }
+      }
+    \seq_put_right:NV \l__planar_tmpb_seq \l__planar_sub_tl
+  }
+\cs_generate_variant:Nn \prop_get:NnN { NVN }
+
+% ---------------------------------------------------------------------------
+% Analysis and reduced form
+%
+% Every layer is cut into elementary layers with one generator each.  The
+% input discs cut the tangle into connectors (pieces made of cups, caps and
+% straight strands), which are planar matchings between the strands above
+% and below.  Closed loops inside a connector bound empty discs.  Two
+% neighbouring strands that pass a disc on the same side and are joined by a
+% cup or a cap right before or after it form a finger, which is pulled back
+% (if the other ends are joined too, this closes an empty loop).  What is
+% left is drawn canonically: in every connector the cups (innermost first),
+% the straight strands, and the caps (outermost first).
+% ---------------------------------------------------------------------------
+\cs_new:Npn \__planar_conn:n #1 { l__planar_conn_ \int_eval:n {#1} _prop }
+\cs_new_protected:Npn \__planar_conn_begin:n #1
+  {
+    \prop_if_exist:cTF { \__planar_conn:n { \int_use:N \l__planar_conn_int } }
+      { \prop_clear:c { \__planar_conn:n { \int_use:N \l__planar_conn_int } } }
+      { \prop_new:c { \__planar_conn:n { \int_use:N \l__planar_conn_int } } }
+    \prop_put:Nee \l__planar_cu_prop
+      { \int_use:N \l__planar_conn_int } { \int_eval:n {#1} }
+    \seq_clear:N \l__planar_state_seq
+    \prop_clear:N \l__planar_other_prop
+    \int_step_inline:nn {#1}
+      {
+        \int_incr:N \l__planar_strand_int
+        \seq_put_right:Ne \l__planar_state_seq { s \int_use:N \l__planar_strand_int }
+        \prop_put:Nen \l__planar_other_prop
+          { s \int_use:N \l__planar_strand_int } { t ##1 }
+      }
+  }
+\cs_new_protected:Npn \__planar_conn_end:
+  {
+    \tl_set:Ne \l__planar_cname_tl
+      { \__planar_conn:n { \int_use:N \l__planar_conn_int } }
+    \prop_put:Nee \l__planar_cv_prop
+      { \int_use:N \l__planar_conn_int } { \seq_count:N \l__planar_state_seq }
+    \prop_clear:N \l__planar_bot_prop
+    \seq_map_indexed_inline:Nn \l__planar_state_seq
+      { \prop_put:Nnn \l__planar_bot_prop {##2} { b ##1 } }
+    \seq_map_indexed_inline:Nn \l__planar_state_seq
+      {
+        \tl_set:Ne \l__planar_x_tl { \prop_item:Nn \l__planar_other_prop {##2} }
+        \str_if_eq:eeTF { \tl_head:N \l__planar_x_tl } { t }
+          {
+            \prop_put:cnV { \l__planar_cname_tl } { b ##1 } \l__planar_x_tl
+            \prop_put:cVn { \l__planar_cname_tl } \l__planar_x_tl { b ##1 }
+          }
+          {
+            \prop_put:cne { \l__planar_cname_tl } { b ##1 }
+              { \prop_item:NV \l__planar_bot_prop \l__planar_x_tl }
+          }
+      }
+    \int_incr:N \l__planar_conn_int
+  }
+\cs_new_protected:Npn \__planar_state_insert:nnn #1#2#3
+  {
+    \seq_clear:N \l__planar_tmpa_seq
+    \int_compare:nNnT {#1} = 0
+      {
+        \seq_put_right:Nn \l__planar_tmpa_seq {#2}
+        \seq_put_right:Nn \l__planar_tmpa_seq {#3}
+      }
+    \seq_map_indexed_inline:Nn \l__planar_state_seq
+      {
+        \seq_put_right:Nn \l__planar_tmpa_seq {##2}
+        \int_compare:nNnT {##1} = {#1}
+          {
+            \seq_put_right:Nn \l__planar_tmpa_seq {#2}
+            \seq_put_right:Nn \l__planar_tmpa_seq {#3}
+          }
+      }
+    \seq_set_eq:NN \l__planar_state_seq \l__planar_tmpa_seq
+  }
+\cs_generate_variant:Nn \__planar_state_insert:nnn { nVV }
+\cs_new_protected:Npn \__planar_state_remove:n #1
+  {
+    \seq_clear:N \l__planar_tmpa_seq
+    \seq_map_indexed_inline:Nn \l__planar_state_seq
+      {
+        \bool_lazy_or:nnT
+          { \int_compare_p:nNn {##1} < { #1 + 1 } }
+          { \int_compare_p:nNn {##1} > { #1 + 2 } }
+          { \seq_put_right:Nn \l__planar_tmpa_seq {##2} }
+      }
+    \seq_set_eq:NN \l__planar_state_seq \l__planar_tmpa_seq
+  }
+% A cup on the strands #1 + 1 and #1 + 2.
+\cs_new_protected:Npn \__planar_op_ev:n #1
+  {
+    \tl_set:Ne \l__planar_x_tl { \seq_item:Nn \l__planar_state_seq { #1 + 1 } }
+    \tl_set:Ne \l__planar_y_tl { \seq_item:Nn \l__planar_state_seq { #1 + 2 } }
+    \tl_set:Ne \l__planar_ox_tl { \prop_item:NV \l__planar_other_prop \l__planar_x_tl }
+    \tl_set:Ne \l__planar_oy_tl { \prop_item:NV \l__planar_other_prop \l__planar_y_tl }
+    \__planar_state_remove:n {#1}
+    \tl_if_eq:NNTF \l__planar_ox_tl \l__planar_y_tl
+      { \int_incr:N \l__planar_loops_int }
+      { \__planar_join:VV \l__planar_ox_tl \l__planar_oy_tl }
+  }
+\cs_new_protected:Npn \__planar_join:nn #1#2
+  {
+    \str_if_eq:eeTF { \tl_head:n {#1} } { s }
+      { \prop_put:Nnn \l__planar_other_prop {#1} {#2} }
+      {
+        \str_if_eq:eeF { \tl_head:n {#2} } { s }
+          {
+            \prop_put:cnn { \__planar_conn:n { \int_use:N \l__planar_conn_int } } {#1} {#2}
+            \prop_put:cnn { \__planar_conn:n { \int_use:N \l__planar_conn_int } } {#2} {#1}
+          }
+      }
+    \str_if_eq:eeT { \tl_head:n {#2} } { s }
+      { \prop_put:Nnn \l__planar_other_prop {#2} {#1} }
+  }
+\cs_generate_variant:Nn \__planar_join:nn { VV }
+% A cap creating the strands #1 + 1 and #1 + 2.
+\cs_new_protected:Npn \__planar_op_coev:n #1
+  {
+    \int_incr:N \l__planar_strand_int
+    \tl_set:Ne \l__planar_x_tl { s \int_use:N \l__planar_strand_int }
+    \int_incr:N \l__planar_strand_int
+    \tl_set:Ne \l__planar_y_tl { s \int_use:N \l__planar_strand_int }
+    \prop_put:NVV \l__planar_other_prop \l__planar_x_tl \l__planar_y_tl
+    \prop_put:NVV \l__planar_other_prop \l__planar_y_tl \l__planar_x_tl
+    \__planar_state_insert:nVV {#1} \l__planar_x_tl \l__planar_y_tl
+  }
+% Generator #2 acting after the first #1 strands of the current seam.
+\cs_new_protected:Npn \__planar_elementary:nn #1#2
+  {
+    \str_case:enF { \__planar_type:n {#2} }
+      {
+        { id } { }
+        { ev } { \__planar_op_ev:n {#1} }
+        { coev } { \__planar_op_coev:n {#1} }
+      }
+      {
+        \__planar_conn_end:
+        \int_incr:N \l__planar_R_int
+        \prop_put:Nee \l__planar_bl_prop
+          { \int_use:N \l__planar_R_int } { \int_eval:n {#1} }
+        \prop_put:Nen \l__planar_bitem_prop { \int_use:N \l__planar_R_int } {#2}
+        \prop_put:Nee \l__planar_br_prop { \int_use:N \l__planar_R_int }
+          { \int_eval:n { \l__planar_cur_int - (#1) - \__planar_in:n {#2} } }
+        \__planar_conn_begin:n
+          {
+            (#1) + \__planar_out:n {#2} +
+            \prop_item:Ne \l__planar_br_prop { \int_use:N \l__planar_R_int }
+          }
+      }
+    \int_set:Nn \l__planar_cur_int
+      { \l__planar_cur_int - \__planar_in:n {#2} + \__planar_out:n {#2} }
+  }
+
+% Discs on neighbouring levels can often be interchanged, passing each other
+% on the left or on the right.  All the words reachable by interchanges are
+% visited (each one with its connectors in normal form), and the one with
+% the least serialization is the normal form.
+\cs_new_protected:Npn \__planar_analyse:
+  {
+    \seq_set_eq:NN \l__planar_orig_seq \l__planar_layers_seq
+    \__planar_analyse_once:
+    \int_set_eq:NN \l__planar_total_int \l__planar_loops_int
+    \prop_clear:N \l__planar_seen_prop
+    \seq_clear:N \l__planar_words_seq
+    \str_clear:N \l__planar_best_str
+    \__planar_nf_layers:
+    \__planar_word_from_nf:Nn \l__planar_nbr_tl { }
+    \seq_put_right:NV \l__planar_words_seq \l__planar_nbr_tl
+    \bool_until_do:nn
+      {
+        \seq_if_empty_p:N \l__planar_words_seq ||
+        \int_compare_p:nNn { \prop_count:N \l__planar_seen_prop }
+          = \l__planar_maxstates_int
+      }
+      { \__planar_visit: }
+    \seq_if_empty:NF \l__planar_words_seq
+      {
+        \msg_warning:nne { planaralgebra } { max-states }
+          { \int_use:N \l__planar_maxstates_int }
+      }
+    \__planar_set_layers:nN { } \l__planar_bestword_tl
+    \__planar_analyse_once:
+    \int_set_eq:NN \l__planar_loops_int \l__planar_total_int
+    \__planar_nf_build:
+    \seq_set_eq:NN \l__planar_layers_seq \l__planar_orig_seq
+    \int_gset_eq:NN \g__planar_loops_int \l__planar_loops_int
+    \int_gset_eq:NN \g__planar_boxes_int \l__planar_R_int
+    \int_gset_eq:NN \g__planar_top_int \l__planar_m_int
+    \int_gset_eq:NN \g__planar_bottom_int \l__planar_n_int
+  }
+\cs_new_protected:Npn \__planar_visit:
+  {
+    \seq_pop_left:NN \l__planar_words_seq \l__planar_snap_tl
+    \__planar_set_layers:nN { } \l__planar_snap_tl
+    \__planar_analyse_once:
+    \__planar_nf_layers:
+    \__planar_state_key:
+    \prop_if_in:NVF \l__planar_seen_prop \l__planar_key_str
+      {
+        \prop_put:NVn \l__planar_seen_prop \l__planar_key_str { }
+        \__planar_word_from_nf:Nn \l__planar_snap_tl { }
+        \bool_lazy_or:nnT
+          { \str_if_empty_p:N \l__planar_best_str }
+          { \str_compare_p:eNe { \l__planar_key_str } < { \l__planar_best_str } }
+          {
+            \str_set_eq:NN \l__planar_best_str \l__planar_key_str
+            \tl_set_eq:NN \l__planar_bestword_tl \l__planar_snap_tl
+          }
+        \__planar_neighbours:n { }
+        \__planar_set_layers:nN { mirror } \l__planar_snap_tl
+        \__planar_analyse_once:
+        \__planar_neighbours:n { mirror }
+      }
+  }
+% Interchanges in which the lower disc passes the upper one on its left; in
+% the mirror image (#1 not empty) these are the ones on the right.
+\cs_new_protected:Npn \__planar_neighbours:n #1
+  {
+    \int_step_inline:nn { \l__planar_R_int - 1 }
+      {
+        \__planar_can_rise:n {##1}
+        \bool_if:NT \l__planar_closed_bool
+          {
+            \__planar_swap_left:n {##1}
+            \__planar_word_from_nf:Nn \l__planar_nbr_tl {#1}
+            \seq_put_right:NV \l__planar_words_seq \l__planar_nbr_tl
+          }
+      }
+  }
+\cs_new_protected:Npn \__planar_word_from_nf:Nn #1#2
+  {
+    \tl_clear:N #1
+    \seq_map_inline:Nn \l__planar_nf_seq
+      {
+        \tl_if_empty:nTF {#2}
+          { \tl_put_right:Nn #1 { {##1} } }
+          { \tl_put_right:Ne #1 { { \tl_reverse_items:n {##1} } } }
+      }
+  }
+\cs_new_protected:Npn \__planar_set_layers:nN #1#2
+  {
+    \seq_clear:N \l__planar_layers_seq
+    \tl_map_inline:Nn #2
+      {
+        \tl_if_empty:nTF {#1}
+          { \seq_put_right:Nn \l__planar_layers_seq {##1} }
+          { \seq_put_right:Ne \l__planar_layers_seq { \tl_reverse_items:n {##1} } }
+      }
+  }
+\cs_new_protected:Npn \__planar_state_key:
+  {
+    \tl_clear:N \l__planar_snap_tl
+    \seq_map_inline:Nn \l__planar_nf_seq
+      { \tl_put_right:Nn \l__planar_snap_tl { ##1 | } }
+    \str_set:NV \l__planar_key_str \l__planar_snap_tl
+  }
+\cs_new_protected:Npn \__planar_analyse_once:
+  {
+    \int_zero:N \l__planar_loops_int
+    \int_zero:N \l__planar_R_int
+    \int_zero:N \l__planar_conn_int
+    \int_zero:N \l__planar_strand_int
+    \int_zero:N \l__planar_box_int
+    \prop_clear:N \l__planar_cu_prop
+    \prop_clear:N \l__planar_cv_prop
+    \prop_clear:N \l__planar_bl_prop
+    \prop_clear:N \l__planar_br_prop
+    \prop_clear:N \l__planar_bitem_prop
+    \int_set:Nn \l__planar_m_int
+      { \__planar_layer_in:e { \seq_item:Nn \l__planar_layers_seq { 1 } } }
+    \int_set:Nn \l__planar_n_int
+      { \__planar_layer_out:e { \seq_item:Nn \l__planar_layers_seq { -1 } } }
+    \int_set_eq:NN \l__planar_cur_int \l__planar_m_int
+    \__planar_conn_begin:n { \l__planar_m_int }
+    \seq_map_inline:Nn \l__planar_layers_seq
+      {
+        \int_zero:N \l__planar_before_int
+        \tl_map_inline:nn {##1}
+          {
+            \__planar_elementary:nn { \l__planar_before_int } {####1}
+            \int_add:Nn \l__planar_before_int { \__planar_out:n {####1} }
+          }
+      }
+    \__planar_conn_end:
+    \__planar_retract:
+  }
+
+% Rename the points of side #1 after #2, #2 + 1 have been removed.
+\cs_new:Npn \__planar_rename:nnn #1#2#3
+  {
+    \str_if_eq:eeTF { \tl_head:n {#3} } {#1}
+      {
+        \int_compare:nNnTF { \tl_tail:n {#3} } > { #2 + 1 }
+          { #1 \int_eval:n { \tl_tail:n {#3} - 2 } }
+          {#3}
+      }
+      {#3}
+  }
+% Remove the points #3, #3 + 1 on side #2 of connector #1, joining what they
+% were joined to.  \l__planar_paired_bool: they were joined to each other.
+\cs_new_protected:Npn \__planar_conn_cut:nnn #1#2#3
+  {
+    \tl_set:Ne \l__planar_cname_tl { \__planar_conn:n {#1} }
+    \tl_set:Ne \l__planar_p_tl
+      { \prop_item:ce { \l__planar_cname_tl } { #2 \int_eval:n {#3} } }
+    \tl_set:Ne \l__planar_q_tl
+      { \prop_item:ce { \l__planar_cname_tl } { #2 \int_eval:n { #3 + 1 } } }
+    \str_if_eq:eeTF { \l__planar_p_tl } { #2 \int_eval:n { #3 + 1 } }
+      { \bool_set_true:N \l__planar_paired_bool }
+      {
+        \bool_set_false:N \l__planar_paired_bool
+        \prop_put:cVV { \l__planar_cname_tl } \l__planar_p_tl \l__planar_q_tl
+        \prop_put:cVV { \l__planar_cname_tl } \l__planar_q_tl \l__planar_p_tl
+      }
+    \prop_remove:ce { \l__planar_cname_tl } { #2 \int_eval:n {#3} }
+    \prop_remove:ce { \l__planar_cname_tl } { #2 \int_eval:n { #3 + 1 } }
+    \prop_clear:N \l__planar_new_prop
+    \prop_map_inline:cn { \l__planar_cname_tl }
+      {
+        \prop_put:Nee \l__planar_new_prop
+          { \__planar_rename:nnn {#2} {#3} {##1} }
+          { \__planar_rename:nnn {#2} {#3} {##2} }
+      }
+    \prop_set_eq:cN { \l__planar_cname_tl } \l__planar_new_prop
+    \str_if_eq:nnTF {#2} { t }
+      {
+        \prop_put:Nee \l__planar_cu_prop { \int_eval:n {#1} }
+          { \int_eval:n { \prop_item:Ne \l__planar_cu_prop { \int_eval:n {#1} } - 2 } }
+      }
+      {
+        \prop_put:Nee \l__planar_cv_prop { \int_eval:n {#1} }
+          { \int_eval:n { \prop_item:Ne \l__planar_cv_prop { \int_eval:n {#1} } - 2 } }
+      }
+  }
+\cs_generate_variant:Nn \prop_item:Nn { ce }
+\cs_new:Npn \__planar_match:nnn #1#2#3
+  { \prop_item:ce { \__planar_conn:n {#1} } { #2 \int_eval:n {#3} } }
+
+\cs_new_protected:Npn \__planar_retract:
+  {
+    \bool_set_true:N \l__planar_changed_bool
+    \bool_while_do:Nn \l__planar_changed_bool
+      {
+        \bool_set_false:N \l__planar_changed_bool
+        \int_step_inline:nn { \l__planar_R_int } { \__planar_retract_level:n {##1} }
+      }
+  }
+\cs_new:Npn \__planar_bl:n #1 { \prop_item:Ne \l__planar_bl_prop { \int_eval:n {#1} } }
+\cs_new:Npn \__planar_br:n #1 { \prop_item:Ne \l__planar_br_prop { \int_eval:n {#1} } }
+\cs_new_protected:Npn \__planar_retract_level:n #1
+  {
+    \prop_get:NnN \l__planar_bitem_prop {#1} \l__planar_item_tl
+    \int_set:Nn \l__planar_pa_int { \exp_args:NV \__planar_in:n \l__planar_item_tl }
+    \int_set:Nn \l__planar_pb_int { \exp_args:NV \__planar_out:n \l__planar_item_tl }
+    \int_set:Nn \l__planar_j_int { 1 }
+    \bool_while_do:nn { \int_compare_p:nNn { \l__planar_j_int + 1 } < { \__planar_bl:n {#1} + 1 } }
+      {
+        \__planar_finger:nnn {#1} { \int_use:N \l__planar_j_int } { \int_use:N \l__planar_j_int }
+        \bool_if:NTF \l__planar_any_bool
+          {
+            \prop_put:Nne \l__planar_bl_prop {#1}
+              { \int_eval:n { \__planar_bl:n {#1} - 2 } }
+          }
+          { \int_incr:N \l__planar_j_int }
+      }
+    \int_set:Nn \l__planar_j_int { 1 }
+    \bool_while_do:nn { \int_compare_p:nNn { \l__planar_j_int + 1 } < { \__planar_br:n {#1} + 1 } }
+      {
+        \__planar_finger:nnn {#1}
+          { \int_eval:n { \__planar_bl:n {#1} + \l__planar_pa_int + \l__planar_j_int } }
+          { \int_eval:n { \__planar_bl:n {#1} + \l__planar_pb_int + \l__planar_j_int } }
+        \bool_if:NTF \l__planar_any_bool
+          {
+            \prop_put:Nne \l__planar_br_prop {#1}
+              { \int_eval:n { \__planar_br:n {#1} - 2 } }
+          }
+          { \int_incr:N \l__planar_j_int }
+      }
+  }
+% The strands #2, #2 + 1 above disc level #1 (which are #3, #3 + 1 below).
+\cs_new_protected:Npn \__planar_finger:nnn #1#2#3
+  {
+    \bool_set_false:N \l__planar_any_bool
+    \bool_lazy_or:nnT
+      {
+        \str_if_eq_p:ee { \__planar_match:nnn { #1 - 1 } { b } {#2} }
+          { b \int_eval:n { #2 + 1 } }
+      }
+      {
+        \str_if_eq_p:ee { \__planar_match:nnn {#1} { t } {#3} }
+          { t \int_eval:n { #3 + 1 } }
+      }
+      {
+        \bool_set_true:N \l__planar_any_bool
+        \bool_set_true:N \l__planar_changed_bool
+        \__planar_conn_cut:nnn { #1 - 1 } { b } {#2}
+        \bool_set_eq:NN \l__planar_first_bool \l__planar_paired_bool
+        \__planar_conn_cut:nnn {#1} { t } {#3}
+        \bool_lazy_and:nnT { \l__planar_first_bool } { \l__planar_paired_bool }
+          { \int_incr:N \l__planar_loops_int }
+      }
+  }
+
+% Can the disc on level #1 + 1 (L) be taken above the one on level #1 (U),
+% passing it on the left?  The two are joined by connector #1.
+\cs_new_protected:Npn \__planar_can_rise:n #1
+  {
+    \prop_get:NeN \l__planar_bitem_prop { \int_eval:n {#1} } \l__planar_upper_tl
+    \prop_get:NeN \l__planar_bitem_prop { \int_eval:n { #1 + 1 } } \l__planar_lower_tl
+    \int_set:Nn \l__planar_uin_int { \exp_args:NV \__planar_in:n \l__planar_upper_tl }
+    \int_set:Nn \l__planar_uout_int { \exp_args:NV \__planar_out:n \l__planar_upper_tl }
+    \int_set:Nn \l__planar_lin_int { \exp_args:NV \__planar_in:n \l__planar_lower_tl }
+    \int_set:Nn \l__planar_lout_int { \exp_args:NV \__planar_out:n \l__planar_lower_tl }
+    \int_set:Nn \l__planar_ubl_int { \__planar_bl:n {#1} }
+    \int_set:Nn \l__planar_ubr_int { \__planar_br:n {#1} }
+    \int_set:Nn \l__planar_lbl_int { \__planar_bl:n { #1 + 1 } }
+    \int_set:Nn \l__planar_lbr_int { \__planar_br:n { #1 + 1 } }
+    \__planar_left_sep:nnn {#1} { \l__planar_ubl_int }
+      { \l__planar_lbl_int + \l__planar_lin_int }
+  }
+% Can the bottom points up to #3 of connector #1, together with what they
+% are joined to, be cut off from the top points after #2?  The part cut off
+% has the top points up to \l__planar_tm_int and the bottom points up to
+% \l__planar_cutb_int.
+\cs_new_protected:Npn \__planar_left_sep:nnn #1#2#3
+  {
+    \bool_set_true:N \l__planar_closed_bool
+    \int_zero:N \l__planar_tm_int
+    \int_set:Nn \l__planar_cutb_int {#3}
+    \int_zero:N \l__planar_j_int
+    \bool_while_do:nn
+      {
+        \l__planar_closed_bool &&
+        \int_compare_p:nNn \l__planar_j_int < \l__planar_cutb_int
+      }
+      {
+        \int_incr:N \l__planar_j_int
+        \tl_set:Ne \l__planar_p_tl
+          { \__planar_match:nnn {#1} { b } { \l__planar_j_int } }
+        \str_if_eq:eeTF { \tl_head:N \l__planar_p_tl } { t }
+          {
+            \int_compare:nNnTF { \tl_tail:N \l__planar_p_tl } > {#2}
+              { \bool_set_false:N \l__planar_closed_bool }
+              {
+                \int_set:Nn \l__planar_tm_int
+                  { \int_max:nn { \l__planar_tm_int } { \tl_tail:N \l__planar_p_tl } }
+              }
+          }
+          {
+            \int_set:Nn \l__planar_cutb_int
+              { \int_max:nn { \l__planar_cutb_int } { \tl_tail:N \l__planar_p_tl } }
+          }
+      }
+  }
+% The word with the levels #1 and #1 + 1 exchanged; #2 is the code for the
+% exchanged levels.
+\cs_new_protected:Npn \__planar_swap_word:nn #1#2
+  {
+    \seq_clear:N \l__planar_nf_seq
+    \int_step_inline:nnn { 0 } { #1 - 1 }
+      {
+        \__planar_conn_layers:n {##1}
+        \int_compare:nNnT {##1} < { #1 - 1 } { \__planar_disc_layer:n { ##1 + 1 } }
+      }
+    #2
+    \int_step_inline:nnn { #1 + 1 } { \l__planar_R_int }
+      {
+        \int_compare:nNnT {##1} > { #1 + 1 } { \__planar_disc_layer:n {##1} }
+        \__planar_conn_layers:n {##1}
+      }
+  }
+\cs_new_protected:Npn \__planar_swap_left:n #1
+  {
+    \__planar_swap_word:nn {#1}
+      {
+        \__planar_sub_layers:nnnnnnn {#1} { 0 } { \l__planar_tm_int }
+          { 0 } { \l__planar_cutb_int } { 0 }
+          { \l__planar_ubl_int - \l__planar_tm_int + \l__planar_uin_int + \l__planar_ubr_int }
+        \__planar_disc_layer:nVn { \l__planar_lbl_int } \l__planar_lower_tl
+          {
+            \l__planar_cutb_int - \l__planar_lbl_int - \l__planar_lin_int
+            + \l__planar_ubl_int - \l__planar_tm_int + \l__planar_uin_int
+            + \l__planar_ubr_int
+          }
+        \__planar_disc_layer:nVn
+          {
+            \l__planar_cutb_int - \l__planar_lin_int + \l__planar_lout_int
+            + \l__planar_ubl_int - \l__planar_tm_int
+          }
+          \l__planar_upper_tl { \l__planar_ubr_int }
+        \__planar_sub_layers:nnnnnnn {#1}
+          { \l__planar_tm_int } { \prop_item:Ne \l__planar_cu_prop { \int_eval:n {#1} } }
+          { \l__planar_cutb_int } { \prop_item:Ne \l__planar_cv_prop { \int_eval:n {#1} } }
+          { \l__planar_cutb_int - \l__planar_lin_int + \l__planar_lout_int } { 0 }
+      }
+  }
+% The layers of the part of connector #1 between the top points #2 + 1 to #3
+% and the bottom points #4 + 1 to #5, with #6 straight strands on its left
+% and #7 on its right.
+\cs_new_protected:Npn \__planar_sub_layers:nnnnnnn #1#2#3#4#5#6#7
+  {
+    \int_set:Nn \l__planar_tmpc_int { \l__planar_R_int + 1 }
+    \tl_set:Ne \l__planar_cname_tl { \__planar_conn:n { \l__planar_tmpc_int } }
+    \prop_if_exist:cTF { \l__planar_cname_tl }
+      { \prop_clear:c { \l__planar_cname_tl } }
+      { \prop_new:c { \l__planar_cname_tl } }
+    \int_step_inline:nnn { #2 + 1 } {#3}
+      {
+        \prop_put:cee { \l__planar_cname_tl } { t \int_eval:n { ##1 - (#2) } }
+          { \__planar_sub_rename:nne {#2} {#4} { \__planar_match:nnn {#1} { t } {##1} } }
+      }
+    \int_step_inline:nnn { #4 + 1 } {#5}
+      {
+        \prop_put:cee { \l__planar_cname_tl } { b \int_eval:n { ##1 - (#4) } }
+          { \__planar_sub_rename:nne {#2} {#4} { \__planar_match:nnn {#1} { b } {##1} } }
+      }
+    \prop_put:Nee \l__planar_cu_prop { \int_use:N \l__planar_tmpc_int }
+      { \int_eval:n { #3 - (#2) } }
+    \prop_put:Nee \l__planar_cv_prop { \int_use:N \l__planar_tmpc_int }
+      { \int_eval:n { #5 - (#4) } }
+    \seq_set_eq:NN \l__planar_save_seq \l__planar_nf_seq
+    \seq_clear:N \l__planar_nf_seq
+    \__planar_conn_layers:n { \int_use:N \l__planar_tmpc_int }
+    \seq_map_inline:Nn \l__planar_nf_seq
+      {
+        \tl_clear:N \l__planar_layer_tl
+        \__planar_put_ids:n {#6}
+        \tl_put_right:Nn \l__planar_layer_tl {##1}
+        \__planar_put_ids:n {#7}
+        \seq_put_right:NV \l__planar_save_seq \l__planar_layer_tl
+      }
+    \seq_set_eq:NN \l__planar_nf_seq \l__planar_save_seq
+  }
+\cs_new:Npn \__planar_sub_rename:nnn #1#2#3
+  {
+    \tl_head:n {#3}
+    \int_eval:n
+      { \tl_tail:n {#3} - \str_if_eq:eeTF { \tl_head:n {#3} } { t } {#1} {#2} }
+  }
+\cs_generate_variant:Nn \__planar_sub_rename:nnn { nne }
+\cs_generate_variant:Nn \prop_put:Nnn { cee }
+
+% The reduced word.
+\cs_new_protected:Npn \__planar_put_ids:n #1
+  { \prg_replicate:nn {#1} { \tl_put_right:NV \l__planar_layer_tl \c__planar_id_tl } }
+% A layer with the generator #2 after #1 and before #3 straight strands.
+\cs_new_protected:Npn \__planar_disc_layer:nnn #1#2#3
+  {
+    \tl_clear:N \l__planar_layer_tl
+    \__planar_put_ids:n {#1}
+    \tl_put_right:Nn \l__planar_layer_tl { {#2} }
+    \__planar_put_ids:n {#3}
+    \seq_put_right:NV \l__planar_nf_seq \l__planar_layer_tl
+  }
+\cs_generate_variant:Nn \__planar_disc_layer:nnn { nV }
+% The layer of disc level #1.
+\cs_new_protected:Npn \__planar_disc_layer:n #1
+  {
+    \prop_get:NeN \l__planar_bitem_prop { \int_eval:n {#1} } \l__planar_item_tl
+    \__planar_disc_layer:nVn { \__planar_bl:n {#1} } \l__planar_item_tl
+      { \__planar_br:n {#1} }
+  }
+\cs_new_protected:Npn \__planar_put_gen:n #1
+  {
+    \tl_put_right:Ne \l__planar_layer_tl
+      {
+        { {#1} { \prop_item:Nn \c__planar_gin_prop {#1} }
+          { \prop_item:Nn \c__planar_gout_prop {#1} } { } }
+      }
+  }
+\cs_new_protected:Npn \__planar_nf_build:
+  {
+    \__planar_nf_layers:
+    \__planar_compact:
+    \__planar_nf_string:
+  }
+\cs_new_protected:Npn \__planar_nf_layers:
+  {
+    \seq_clear:N \l__planar_nf_seq
+    \int_step_inline:nnn { 0 } { \l__planar_R_int }
+      {
+        \__planar_conn_layers:n {##1}
+        \int_compare:nNnT {##1} < \l__planar_R_int
+          { \__planar_disc_layer:n { ##1 + 1 } }
+      }
+    \seq_if_empty:NT \l__planar_nf_seq
+      {
+        \tl_clear:N \l__planar_layer_tl
+        \__planar_put_ids:n { \l__planar_m_int }
+        \seq_put_right:NV \l__planar_nf_seq \l__planar_layer_tl
+      }
+  }
+% Nesting depth of the cups (#2 = t) or caps (#2 = b) of connector #1 with
+% #3 points on that side.
+\cs_new_protected:Npn \__planar_depths:nnn #1#2#3
+  {
+    \prop_clear:N \l__planar_depth_prop
+    \int_zero:N \l__planar_D_int
+    \int_step_inline:nnnn {#3} { -1 } { 1 }
+      {
+        \tl_set:Ne \l__planar_p_tl { \__planar_match:nnn {#1} {#2} {##1} }
+        \bool_lazy_and:nnT
+          { \str_if_eq_p:ee { \tl_head:N \l__planar_p_tl } {#2} }
+          { \int_compare_p:nNn { \tl_tail:N \l__planar_p_tl } > {##1} }
+          {
+            \int_set:Nn \l__planar_k_int { 1 }
+            \int_step_inline:nnn { ##1 + 1 } { \tl_tail:N \l__planar_p_tl - 1 }
+              {
+                \prop_if_in:NnT \l__planar_depth_prop {####1}
+                  {
+                    \int_set:Nn \l__planar_k_int
+                      {
+                        \int_max:nn { \l__planar_k_int }
+                          { \prop_item:Nn \l__planar_depth_prop {####1} + 1 }
+                      }
+                  }
+              }
+            \prop_put:Nne \l__planar_depth_prop {##1} { \int_use:N \l__planar_k_int }
+            \int_set:Nn \l__planar_D_int
+              { \int_max:nn { \l__planar_D_int } { \l__planar_k_int } }
+          }
+      }
+  }
+\cs_new_protected:Npn \__planar_conn_layers:n #1
+  {
+    \int_set:Nn \l__planar_a_int { \prop_item:Ne \l__planar_cu_prop {#1} }
+    \int_set:Nn \l__planar_b_int { \prop_item:Ne \l__planar_cv_prop {#1} }
+    % cups, innermost first
+    \__planar_depths:nnn {#1} { t } { \l__planar_a_int }
+    \seq_clear:N \l__planar_present_seq
+    \int_step_inline:nn { \l__planar_a_int }
+      { \seq_put_right:Nn \l__planar_present_seq {##1} }
+    \int_step_inline:nn { \l__planar_D_int }
+      {
+        \tl_clear:N \l__planar_layer_tl
+        \seq_clear:N \l__planar_tmpa_seq
+        \bool_set_false:N \l__planar_have_bool
+        \seq_map_inline:Nn \l__planar_present_seq
+          {
+            \bool_if:NTF \l__planar_have_bool
+              { \bool_set_false:N \l__planar_have_bool }
+              {
+                \str_if_eq:eeTF
+                  { \prop_item:Nn \l__planar_depth_prop {####1} } {##1}
+                  {
+                    \__planar_put_gen:n { ev }
+                    \bool_set_true:N \l__planar_have_bool
+                  }
+                  {
+                    \tl_put_right:NV \l__planar_layer_tl \c__planar_id_tl
+                    \seq_put_right:Nn \l__planar_tmpa_seq {####1}
+                  }
+              }
+          }
+        \seq_set_eq:NN \l__planar_present_seq \l__planar_tmpa_seq
+        \seq_put_right:NV \l__planar_nf_seq \l__planar_layer_tl
+      }
+    % caps, outermost first
+    \__planar_depths:nnn {#1} { b } { \l__planar_b_int }
+    \prop_clear:N \l__planar_tmp_prop
+    \int_step_inline:nn { \l__planar_b_int }
+      {
+        \str_if_eq:eeT { \tl_head:e { \__planar_match:nnn {#1} { b } {##1} } } { t }
+          { \prop_put:Nnn \l__planar_tmp_prop {##1} { } }
+      }
+    \int_step_inline:nn { \l__planar_D_int }
+      {
+        \tl_clear:N \l__planar_layer_tl
+        \prop_clear:N \l__planar_new_prop
+        \int_step_inline:nn { \l__planar_b_int }
+          {
+            \prop_if_in:NnTF \l__planar_tmp_prop {####1}
+              { \tl_put_right:NV \l__planar_layer_tl \c__planar_id_tl }
+              {
+                \str_if_eq:eeT
+                  { \prop_item:Nn \l__planar_depth_prop {####1} }
+                  { \int_eval:n { \l__planar_D_int - ##1 + 1 } }
+                  {
+                    \__planar_put_gen:n { coev }
+                    \prop_put:Nnn \l__planar_new_prop {####1} { }
+                    \prop_put:Nen \l__planar_new_prop
+                      { \tl_tail:e { \__planar_match:nnn {#1} { b } {####1} } } { }
+                  }
+              }
+          }
+        \prop_map_inline:Nn \l__planar_new_prop
+          { \prop_put:Nnn \l__planar_tmp_prop {####1} { } }
+        \seq_put_right:NV \l__planar_nf_seq \l__planar_layer_tl
+      }
+  }
+\cs_generate_variant:Nn \tl_head:n { e }
+\cs_generate_variant:Nn \tl_tail:n { e }
+
+% Merge a layer into the previous one when all its generators lie to the right
+% of the generators of the previous layer.
+\cs_new_protected:Npn \__planar_compact:
+  {
+    \seq_clear:N \l__planar_tmpb_seq
+    \bool_set_false:N \l__planar_have_bool
+    \seq_map_inline:Nn \l__planar_nf_seq
+      {
+        \bool_if:NTF \l__planar_have_bool
+          {
+            \__planar_try_merge:Vn \l__planar_cur_tl {##1}
+            \bool_if:NTF \l__planar_merge_bool
+              { \tl_set_eq:NN \l__planar_cur_tl \l__planar_merged_tl }
+              {
+                \seq_put_right:NV \l__planar_tmpb_seq \l__planar_cur_tl
+                \tl_set:Nn \l__planar_cur_tl {##1}
+              }
+          }
+          {
+            \tl_set:Nn \l__planar_cur_tl {##1}
+            \bool_set_true:N \l__planar_have_bool
+          }
+      }
+    \bool_if:NT \l__planar_have_bool
+      { \seq_put_right:NV \l__planar_tmpb_seq \l__planar_cur_tl }
+    \seq_set_eq:NN \l__planar_nf_seq \l__planar_tmpb_seq
+  }
+\cs_new_protected:Npn \__planar_try_merge:nn #1#2
+  {
+    \tl_clear:N \l__planar_prefix_tl
+    \tl_clear:N \l__planar_tmp_tl
+    \int_zero:N \l__planar_pa_int
+    \int_zero:N \l__planar_i_int
+    \bool_set_false:N \l__planar_has_one_bool
+    \tl_map_inline:nn {#1}
+      {
+        \tl_put_right:Nn \l__planar_tmp_tl { {##1} }
+        \int_add:Nn \l__planar_i_int { \__planar_out:n {##1} }
+        \str_if_eq:eeF { \__planar_type:n {##1} } { id }
+          {
+            \bool_set_true:N \l__planar_has_one_bool
+            \tl_set_eq:NN \l__planar_prefix_tl \l__planar_tmp_tl
+            \int_set_eq:NN \l__planar_pa_int \l__planar_i_int
+            \bool_set:Nn \l__planar_zero_one_bool
+              { \int_compare_p:nNn { \__planar_out:n {##1} } = 0 }
+          }
+      }
+    \int_zero:N \l__planar_pb_int
+    \bool_set_false:N \l__planar_has_two_bool
+    \tl_map_inline:nn {#2}
+      {
+        \bool_if:NF \l__planar_has_two_bool
+          {
+            \str_if_eq:eeTF { \__planar_type:n {##1} } { id }
+              { \int_incr:N \l__planar_pb_int }
+              {
+                \bool_set_true:N \l__planar_has_two_bool
+                \bool_set:Nn \l__planar_zero_two_bool
+                  { \int_compare_p:nNn { \__planar_in:n {##1} } = 0 }
+              }
+          }
+      }
+    \bool_set_false:N \l__planar_merge_bool
+    \bool_lazy_and:nnT { \l__planar_has_one_bool } { \l__planar_has_two_bool }
+      {
+        \bool_if:nTF { \l__planar_zero_one_bool && \l__planar_zero_two_bool }
+          {
+            \int_compare:nNnT \l__planar_pb_int > \l__planar_pa_int
+              { \bool_set_true:N \l__planar_merge_bool }
+          }
+          {
+            \int_compare:nNnF \l__planar_pb_int < \l__planar_pa_int
+              { \bool_set_true:N \l__planar_merge_bool }
+          }
+      }
+    \bool_if:NT \l__planar_merge_bool
+      {
+        \tl_set_eq:NN \l__planar_merged_tl \l__planar_prefix_tl
+        \int_zero:N \l__planar_i_int
+        \tl_map_inline:nn {#2}
+          {
+            \int_incr:N \l__planar_i_int
+            \int_compare:nNnT \l__planar_i_int > \l__planar_pa_int
+              { \tl_put_right:Nn \l__planar_merged_tl { {##1} } }
+          }
+      }
+  }
+\cs_generate_variant:Nn \__planar_try_merge:nn { Vn }
+
+% The reduced form as a string of \PA commands.
+\cs_new_protected:Npn \__planar_nf_string:
+  {
+    \str_clear:N \l__planar_nf_str
+    \seq_map_inline:Nn \l__planar_nf_seq
+      {
+        \str_put_right:Ne \l__planar_nf_str
+          {
+            \c_backslash_str PA \c_left_brace_str
+            \__planar_layer_in:n {##1} , \__planar_layer_out:n {##1}
+            \c_right_brace_str \c_left_brace_str
+          }
+        \tl_clear:N \l__planar_last_tl
+        \int_zero:N \l__planar_k_int
+        \bool_set_true:N \l__planar_first_bool
+        \tl_map_inline:nn {##1} { \__planar_nf_item:nnnn ####1 }
+        \__planar_nf_flush:
+        \str_put_right:Ne \l__planar_nf_str { \c_right_brace_str }
+      }
+    \str_gset_eq:NN \g__planar_nf_str \l__planar_nf_str
+  }
+\cs_new_protected:Npn \__planar_nf_item:nnnn #1#2#3#4
+  {
+    \str_if_eq:nnTF {#1} { box }
+      {
+        \__planar_nf_flush:
+        \__planar_nf_sep:
+        \str_put_right:Ne \l__planar_nf_str { \tl_to_str:n {#4} (#2,#3) }
+      }
+      {
+        \str_if_eq:VnF \l__planar_last_tl {#1} { \__planar_nf_flush: }
+        \tl_set:Nn \l__planar_last_tl {#1}
+        \int_incr:N \l__planar_k_int
+      }
+  }
+\cs_new_protected:Npn \__planar_nf_sep:
+  {
+    \bool_if:NF \l__planar_first_bool { \str_put_right:Nn \l__planar_nf_str { ,~ } }
+    \bool_set_false:N \l__planar_first_bool
+  }
+\cs_new_protected:Npn \__planar_nf_flush:
+  {
+    \int_compare:nNnT \l__planar_k_int > 0
+      {
+        \__planar_nf_sep:
+        \str_put_right:Ne \l__planar_nf_str
+          {
+            \l__planar_last_tl
+            \int_compare:nNnT \l__planar_k_int > 1
+              { \c_circumflex_str \int_use:N \l__planar_k_int }
+          }
+      }
+    \int_zero:N \l__planar_k_int
+    \tl_clear:N \l__planar_last_tl
+  }
+\cs_generate_variant:Nn \str_if_eq:nnF { Vn }
+
+% ---------------------------------------------------------------------------
+% Layout
+%
+% Strands on a seam sit at positions (in units of `strand sep') that are
+% strictly increasing, with gaps of at least 1 and larger gaps next to discs.
+% Each layer predicts where the strands on the neighbouring seams would like
+% to be (a straight strand keeps its position, a disc centres its outputs
+% under its inputs, a cap goes next to its neighbours, ...); the positions
+% are the best fit to these wishes under the gap constraints, found by
+% isotonic regression (pool adjacent violators).  A few sweeps back and forth
+% let both neighbours of a seam have their say.
+% ---------------------------------------------------------------------------
+\cs_new:Npn \__planar_key:nn #1#2 { \int_eval:n {#1} . \int_eval:n {#2} }
+
+% Sizes of the discs (half width and half height, in cm) and of the layers.
+\cs_new_protected:Npn \__planar_measure:n #1
+  {
+    \hbox_set:Nn \l__planar_tmp_box {#1}
+    \fp_set:Nn \l__planar_wd_fp
+      {
+        \dim_to_fp:n { \box_wd:N \l__planar_tmp_box }
+        / \dim_to_fp:n { 1cm } / \l__planar_scale_fp
+      }
+    \fp_set:Nn \l__planar_ht_fp
+      {
+        \dim_to_fp:n { \box_ht:N \l__planar_tmp_box + \box_dp:N \l__planar_tmp_box }
+        / \dim_to_fp:n { 1cm } / \l__planar_scale_fp
+      }
+  }
+\cs_new_protected:Npn \__planar_box_sizes:
+  {
+    \prop_clear:N \l__planar_bwidth_prop
+    \prop_clear:N \l__planar_bheight_prop
+    \prop_clear:N \l__planar_h_prop
+    \fp_set:Nn \l__planar_star_fp { \bool_if:NTF \l__planar_stars_bool { 0.3 } { 0 } }
+    \seq_map_indexed_inline:Nn \l__planar_layers_seq
+      {
+        \fp_set_eq:NN \l__planar_h_fp \l__planar_L_fp
+        \int_zero:N \l__planar_j_int
+        \tl_map_inline:nn {##2}
+          {
+            \int_incr:N \l__planar_j_int
+            \str_if_eq:eeT { \__planar_type:n {####1} } { box }
+              {
+                \__planar_box_size:nnnn ####1
+                \prop_put:Nee \l__planar_bwidth_prop
+                  { \__planar_key:nn {##1} { \l__planar_j_int } } { \fp_use:N \l__planar_bw_fp }
+                \prop_put:Nee \l__planar_bheight_prop
+                  { \__planar_key:nn {##1} { \l__planar_j_int } } { \fp_use:N \l__planar_bh_fp }
+                \fp_set:Nn \l__planar_h_fp
+                  {
+                    max ( \l__planar_h_fp ,
+                      2 * \l__planar_bh_fp + 2 * \c__planar_legroom_fp )
+                  }
+              }
+          }
+        \prop_put:Nne \l__planar_h_prop {##1} { \fp_use:N \l__planar_h_fp }
+      }
+  }
+\fp_new:N \l__planar_h_fp
+\cs_new_protected:Npn \__planar_box_size:nnnn #1#2#3#4
+  {
+    \tl_if_blank:nTF {#4}
+      {
+        \fp_zero:N \l__planar_wd_fp
+        \fp_zero:N \l__planar_ht_fp
+      }
+      { \__planar_measure:n { \l__planar_labelfont_tl \ensuremath {#4} } }
+    \int_set:Nn \l__planar_k_int { \int_max:nn {#2} {#3} }
+    \str_if_eq:VnTF \l__planar_boxshape_tl { circle }
+      {
+        \fp_set:Nn \l__planar_bw_fp
+          {
+            max ( \l__planar_boxmin_fp ,
+              0.5 * sqrt ( \l__planar_wd_fp ^ 2 + \l__planar_ht_fp ^ 2 ) + 0.05 ,
+              0.11 * \l__planar_k_int )
+          }
+        \fp_set_eq:NN \l__planar_bh_fp \l__planar_bw_fp
+      }
+      {
+        \fp_set:Nn \l__planar_bw_fp
+          {
+            max ( \l__planar_boxmin_fp , 0.5 * \l__planar_wd_fp + 0.1 ,
+              0.4 * ( \l__planar_k_int - 1 ) * \l__planar_s_fp + 0.12 )
+          }
+        \fp_set:Nn \l__planar_bh_fp
+          { max ( 0.8 * \l__planar_boxmin_fp , 0.5 * \l__planar_ht_fp + 0.08 ) }
+      }
+  }
+\cs_generate_variant:Nn \str_if_eq:nnTF { Vn }
+
+% Minimal gaps between neighbouring strands on every seam.
+\cs_new_protected:Npn \__planar_all_gaps:
+  {
+    \prop_clear:N \l__planar_gaps_prop
+    \int_step_inline:nnn { 0 } { \l__planar_N_int } { \__planar_seam_gaps:n {##1} }
+  }
+\cs_new_protected:Npn \__planar_seam_gaps:n #1
+  {
+    \prop_clear:N \l__planar_g_prop
+    \int_step_inline:nn { \__planar_count:n {#1} - 1 }
+      { \prop_put:Nnn \l__planar_g_prop {##1} { 1 } }
+    \int_compare:nNnT {#1} > 0 { \__planar_side_gaps:nn {#1} { out } }
+    \int_compare:nNnT {#1} < \l__planar_N_int
+      { \__planar_side_gaps:nn { #1 + 1 } { in } }
+    \clist_clear:N \l__planar_tmp_clist
+    \int_step_inline:nn { \__planar_count:n {#1} - 1 }
+      {
+        \clist_put_right:Ne \l__planar_tmp_clist
+          { \prop_item:Nn \l__planar_g_prop {##1} }
+      }
+    \prop_put:NeV \l__planar_gaps_prop { \int_eval:n {#1} } \l__planar_tmp_clist
+  }
+% Room needed by item #2 (number #3 of layer #1) on side #4 with #5 points.
+\cs_new_protected:Npn \__planar_room:nnnnn #1#2#3#4#5
+  {
+    \str_if_eq:eeTF { \__planar_type:n {#2} } { box }
+      {
+        \fp_set:Nn \l__planar_w_fp
+          {
+            ( \prop_item:Ne \l__planar_bwidth_prop { \__planar_key:nn {#1} {#3} }
+              + \c__planar_clear_fp ) / \l__planar_s_fp
+          }
+        \fp_set:Nn \l__planar_tmp_fp { \l__planar_star_fp / \l__planar_s_fp }
+        \fp_set:Nn \l__planar_lamR_fp
+          { max ( 0.5 , \l__planar_w_fp - ( #5 - 1 ) / 2 ) }
+        \fp_set:Nn \l__planar_lamL_fp { \l__planar_lamR_fp + \l__planar_tmp_fp }
+        \fp_set:Nn \l__planar_zero_fp
+          { 2 * \l__planar_w_fp + \l__planar_tmp_fp }
+      }
+      {
+        \fp_set:Nn \l__planar_lamL_fp { 0.5 }
+        \fp_set:Nn \l__planar_lamR_fp { 0.5 }
+        \fp_set:Nn \l__planar_zero_fp { 2 }
+      }
+  }
+\cs_new_protected:Npn \__planar_side_gaps:nn #1#2
+  {
+    \int_zero:N \l__planar_idx_int
+    \int_zero:N \l__planar_j_int
+    \fp_zero:N \l__planar_pend_fp
+    \fp_zero:N \l__planar_lastR_fp
+    \tl_set:Ne \l__planar_tmpb_tl { \__planar_layer:n {#1} }
+    \tl_map_inline:Nn \l__planar_tmpb_tl
+      {
+        \int_incr:N \l__planar_j_int
+        \int_set:Nn \l__planar_c_int
+          { \str_if_eq:nnTF {#2} { in } { \__planar_in:n {##1} } { \__planar_out:n {##1} } }
+        \__planar_room:nnnnn {#1} {##1} { \l__planar_j_int } {#2} { \l__planar_c_int }
+        \int_compare:nNnTF \l__planar_c_int > 0
+          {
+            \int_compare:nNnT \l__planar_idx_int > 0
+              {
+                \prop_put:Nee \l__planar_g_prop { \int_use:N \l__planar_idx_int }
+                  {
+                    \fp_eval:n
+                      {
+                        max ( \prop_item:Ne \l__planar_g_prop { \int_use:N \l__planar_idx_int } ,
+                          \l__planar_lastR_fp + \l__planar_pend_fp + \l__planar_lamL_fp )
+                      }
+                  }
+              }
+            \int_add:Nn \l__planar_idx_int { \l__planar_c_int }
+            \fp_set_eq:NN \l__planar_lastR_fp \l__planar_lamR_fp
+            \fp_zero:N \l__planar_pend_fp
+          }
+          { \fp_add:Nn \l__planar_pend_fp { \l__planar_zero_fp } }
+      }
+  }
+
+\cs_new:Npn \__planar_src:n #1
+  { \clist_item:Nn \l__planar_src_clist { \l__planar_idx_int + #1 } }
+\cs_new_protected:Npn \__planar_push:nn #1#2
+  {
+    \tl_set:Ne \l__planar_last_tl { \fp_eval:n {#1} }
+    \seq_put_right:NV \l__planar_pred_seq \l__planar_last_tl
+    \seq_put_right:Ne \l__planar_predw_seq { \fp_eval:n {#2} }
+  }
+% Generators without inputs have no natural place: put them next to the
+% previous output, or just before the next input.
+\cs_new_protected:Npn \__planar_push_free:n #1
+  {
+    \tl_if_empty:NTF \l__planar_last_tl
+      {
+        \int_compare:nNnTF \l__planar_idx_int > \l__planar_len_int
+          {
+            \int_compare:nNnTF \l__planar_len_int > 0
+              {
+                \tl_set:Ne \l__planar_tmp_tl
+                  { \fp_eval:n { \clist_item:Nn \l__planar_src_clist { \l__planar_len_int } + 1 } }
+              }
+              { \tl_set:Nn \l__planar_tmp_tl { 0 } }
+          }
+          {
+            \tl_set:Ne \l__planar_tmp_tl
+              { \fp_eval:n { \__planar_src:n { 0 } - #1 } }
+          }
+      }
+      { \tl_set:Ne \l__planar_tmp_tl { \fp_eval:n { \l__planar_last_tl + 1 } } }
+    \int_step_inline:nnn { 0 } { #1 - 1 }
+      { \__planar_push:nn { \l__planar_tmp_tl + ##1 } { \c__planar_free_fp } }
+  }
+
+% Predictions for seam #1 from seam #1 - 1 (#2 = f) or from seam #1 + 1
+% (#2 = b, reading the layer backwards).
+\cs_new_protected:Npn \__planar_predict:nn #1#2
+  {
+    \seq_clear:N \l__planar_pred_seq
+    \seq_clear:N \l__planar_predw_seq
+    \str_if_eq:nnTF {#2} { f }
+      {
+        \prop_get:NeN \l__planar_pos_prop { \int_eval:n { #1 - 1 } } \l__planar_src_clist
+        \tl_set:Ne \l__planar_tmpb_tl { \__planar_layer:n {#1} }
+        \bool_set_false:N \l__planar_mirror_bool
+      }
+      {
+        \prop_get:NeN \l__planar_pos_prop { \int_eval:n { #1 + 1 } } \l__planar_src_clist
+        \tl_set:Ne \l__planar_tmpb_tl { \__planar_layer:n { #1 + 1 } }
+        \bool_set_true:N \l__planar_mirror_bool
+      }
+    \int_set:Nn \l__planar_len_int { \clist_count:N \l__planar_src_clist }
+    \int_set:Nn \l__planar_idx_int { 1 }
+    \tl_clear:N \l__planar_last_tl
+    \tl_map_inline:Nn \l__planar_tmpb_tl
+      {
+        \bool_if:NTF \l__planar_mirror_bool
+          {
+            \int_set:Nn \l__planar_pa_int { \__planar_out:n {##1} }
+            \int_set:Nn \l__planar_pb_int { \__planar_in:n {##1} }
+          }
+          {
+            \int_set:Nn \l__planar_pa_int { \__planar_in:n {##1} }
+            \int_set:Nn \l__planar_pb_int { \__planar_out:n {##1} }
+          }
+        \int_compare:nNnTF \l__planar_pa_int > 0
+          {
+            \int_compare:nNnT \l__planar_pb_int > 0
+              {
+                \fp_zero:N \l__planar_mean_fp
+                \int_step_inline:nn { \l__planar_pa_int }
+                  { \fp_add:Nn \l__planar_mean_fp { \__planar_src:n { ####1 - 1 } } }
+                \fp_set:Nn \l__planar_mean_fp { \l__planar_mean_fp / \l__planar_pa_int }
+                \int_step_inline:nn { \l__planar_pb_int }
+                  {
+                    \__planar_push:nn
+                      { \l__planar_mean_fp + ####1 - ( \l__planar_pb_int + 1 ) / 2 } { 1 }
+                  }
+              }
+          }
+          {
+            \int_compare:nNnT \l__planar_pb_int > 0
+              { \__planar_push_free:n { \l__planar_pb_int } }
+          }
+        \int_add:Nn \l__planar_idx_int { \l__planar_pa_int }
+      }
+  }
+
+% Place the strands of seam #1 using the predictions from the previous
+% (#2 = true) and/or the next (#3 = true) layer.
+\cs_new_protected:Npn \__planar_place:nnn #1#2#3
+  {
+    \seq_clear:N \l__planar_ideal_seq
+    \seq_clear:N \l__planar_weight_seq
+    \bool_if:nT { #2 && \int_compare_p:nNn {#1} > 0 }
+      {
+        \__planar_predict:nn {#1} { f }
+        \seq_set_eq:NN \l__planar_ideal_seq \l__planar_pred_seq
+        \seq_set_eq:NN \l__planar_weight_seq \l__planar_predw_seq
+      }
+    \bool_if:nT { #3 && \int_compare_p:nNn {#1} < \l__planar_N_int }
+      {
+        \__planar_predict:nn {#1} { b }
+        \seq_if_empty:NTF \l__planar_ideal_seq
+          {
+            \seq_set_eq:NN \l__planar_ideal_seq \l__planar_pred_seq
+            \seq_set_eq:NN \l__planar_weight_seq \l__planar_predw_seq
+          }
+          {
+            \seq_set_eq:NN \l__planar_fpred_seq \l__planar_ideal_seq
+            \seq_set_eq:NN \l__planar_fw_seq \l__planar_weight_seq
+            \seq_clear:N \l__planar_ideal_seq
+            \seq_clear:N \l__planar_weight_seq
+            \seq_map_indexed_inline:Nn \l__planar_fpred_seq
+              {
+                \tl_set:Ne \l__planar_ta_tl { \seq_item:Nn \l__planar_fw_seq {##1} }
+                \tl_set:Ne \l__planar_tb_tl { \seq_item:Nn \l__planar_predw_seq {##1} }
+                \seq_put_right:Ne \l__planar_ideal_seq
+                  {
+                    \fp_eval:n
+                      {
+                        ( \l__planar_ta_tl * ##2 + \l__planar_tb_tl *
+                          \seq_item:Nn \l__planar_pred_seq {##1} )
+                        / ( \l__planar_ta_tl + \l__planar_tb_tl )
+                      }
+                  }
+                \seq_put_right:Ne \l__planar_weight_seq
+                  { \fp_eval:n { \l__planar_ta_tl + \l__planar_tb_tl } }
+              }
+          }
+      }
+    \seq_if_empty:NF \l__planar_ideal_seq
+      {
+        \__planar_pava:n {#1}
+        \prop_put:NeV \l__planar_pos_prop { \int_eval:n {#1} } \l__planar_tmp_clist
+      }
+  }
+
+% Isotonic regression with minimal gaps g_i: minimise sum w_i (y_i - x_i)^2
+% subject to y_{i+1} >= y_i + g_i.  With z_i = y_i - G_i (G_i the sum of the
+% first i - 1 gaps) this asks for a non-decreasing z, which is what
+% pool-adjacent-violators computes.
+\cs_new_protected:Npn \__planar_cumulative_gaps:n #1
+  {
+    \prop_get:NeN \l__planar_gaps_prop { \int_eval:n {#1} } \l__planar_gap_clist
+    \seq_clear:N \l__planar_G_seq
+    \fp_zero:N \l__planar_acc_fp
+    \seq_put_right:Nn \l__planar_G_seq { 0 }
+    \clist_map_inline:Nn \l__planar_gap_clist
+      {
+        \fp_add:Nn \l__planar_acc_fp {##1}
+        \seq_put_right:Ne \l__planar_G_seq { \fp_use:N \l__planar_acc_fp }
+      }
+  }
+\cs_new_protected:Npn \__planar_pava:n #1
+  {
+    \__planar_cumulative_gaps:n {#1}
+    \seq_clear:N \l__planar_bs_seq
+    \seq_clear:N \l__planar_bw_seq
+    \seq_clear:N \l__planar_bn_seq
+    \seq_map_indexed_inline:Nn \l__planar_ideal_seq
+      {
+        \tl_set:Ne \l__planar_tb_tl { \seq_item:Nn \l__planar_weight_seq {##1} }
+        \seq_put_right:Ne \l__planar_bs_seq
+          { \fp_eval:n { \l__planar_tb_tl * ( ##2 - \seq_item:Nn \l__planar_G_seq {##1} ) } }
+        \seq_put_right:NV \l__planar_bw_seq \l__planar_tb_tl
+        \seq_put_right:Nn \l__planar_bn_seq { 1 }
+        \__planar_pava_merge:
+      }
+    \clist_clear:N \l__planar_tmp_clist
+    \int_zero:N \l__planar_i_int
+    \seq_map_indexed_inline:Nn \l__planar_bs_seq
+      {
+        \tl_set:Ne \l__planar_ta_tl
+          { \fp_eval:n { ##2 / ( \seq_item:Nn \l__planar_bw_seq {##1} ) } }
+        \prg_replicate:nn { \seq_item:Nn \l__planar_bn_seq {##1} }
+          {
+            \int_incr:N \l__planar_i_int
+            \clist_put_right:Ne \l__planar_tmp_clist
+              {
+                \fp_eval:n
+                  {
+                    round ( \l__planar_ta_tl +
+                      \seq_item:Nn \l__planar_G_seq { \l__planar_i_int } , 5 )
+                  }
+              }
+          }
+      }
+  }
+\cs_new_protected:Npn \__planar_pava_merge:
+  {
+    \int_compare:nNnT { \seq_count:N \l__planar_bs_seq } > 1
+      {
+        \seq_pop_right:NN \l__planar_bs_seq \l__planar_ta_tl
+        \seq_pop_right:NN \l__planar_bw_seq \l__planar_tb_tl
+        \seq_pop_right:NN \l__planar_bn_seq \l__planar_x_tl
+        \seq_get_right:NN \l__planar_bs_seq \l__planar_p_tl
+        \seq_get_right:NN \l__planar_bw_seq \l__planar_q_tl
+        \fp_compare:nNnTF
+          { \l__planar_p_tl / \l__planar_q_tl }
+          > { \l__planar_ta_tl / \l__planar_tb_tl + 1e-9 }
+          {
+            \seq_pop_right:NN \l__planar_bs_seq \l__planar_p_tl
+            \seq_pop_right:NN \l__planar_bw_seq \l__planar_q_tl
+            \seq_pop_right:NN \l__planar_bn_seq \l__planar_y_tl
+            \seq_put_right:Ne \l__planar_bs_seq
+              { \fp_eval:n { \l__planar_p_tl + \l__planar_ta_tl } }
+            \seq_put_right:Ne \l__planar_bw_seq
+              { \fp_eval:n { \l__planar_q_tl + \l__planar_tb_tl } }
+            \seq_put_right:Ne \l__planar_bn_seq
+              { \int_eval:n { \l__planar_y_tl + \l__planar_x_tl } }
+            \__planar_pava_merge:
+          }
+          {
+            \seq_put_right:NV \l__planar_bs_seq \l__planar_ta_tl
+            \seq_put_right:NV \l__planar_bw_seq \l__planar_tb_tl
+            \seq_put_right:NV \l__planar_bn_seq \l__planar_x_tl
+          }
+      }
+  }
+
+\cs_new_protected:Npn \__planar_layout:
+  {
+    \prop_clear:N \l__planar_pos_prop
+    \__planar_cumulative_gaps:n { 0 }
+    \clist_clear:N \l__planar_tmp_clist
+    \int_step_inline:nn { \__planar_count:n { 0 } }
+      { \clist_put_right:Ne \l__planar_tmp_clist { \seq_item:Nn \l__planar_G_seq {##1} } }
+    \prop_put:NnV \l__planar_pos_prop { 0 } \l__planar_tmp_clist
+    \int_step_inline:nn { \l__planar_N_int }
+      {
+        \prop_put:Nnn \l__planar_pos_prop {##1} { }
+        \__planar_place:nnn {##1} { \c_true_bool } { \c_false_bool }
+      }
+    \__planar_smooth:n { 4 }
+  }
+\cs_new_protected:Npn \__planar_smooth:n #1
+  {
+    \int_compare:nNnT {#1} > 0
+      {
+        \tl_set:Ne \l__planar_sig_tl { \__planar_signature: }
+        \int_step_inline:nnnn { \l__planar_N_int } { -1 } { 0 }
+          { \__planar_place:nnn {##1} { \c_true_bool } { \c_true_bool } }
+        \int_step_inline:nnn { 0 } { \l__planar_N_int }
+          { \__planar_place:nnn {##1} { \c_true_bool } { \c_true_bool } }
+        \tl_set:Ne \l__planar_tmp_tl { \__planar_signature: }
+        \tl_if_eq:NNF \l__planar_sig_tl \l__planar_tmp_tl
+          { \__planar_smooth:n { #1 - 1 } }
+      }
+  }
+\cs_new:Npn \__planar_signature:
+  { \prop_map_function:NN \l__planar_pos_prop \__planar_signature:nn }
+\cs_new:Npn \__planar_signature:nn #1#2 { #1 : #2 ; }
+
+% Heights of the seams (u, in cm; seam 0 at u = 0, going down) and the
+% centres of the discs.
+\cs_new_protected:Npn \__planar_heights:
+  {
+    \prop_clear:N \l__planar_u_prop
+    \fp_zero:N \l__planar_acc_fp
+    \prop_put:Nnn \l__planar_u_prop { 0 } { 0 }
+    \int_step_inline:nn { \l__planar_N_int }
+      {
+        \fp_sub:Nn \l__planar_acc_fp { \prop_item:Nn \l__planar_h_prop {##1} }
+        \prop_put:Nne \l__planar_u_prop {##1} { \fp_use:N \l__planar_acc_fp }
+      }
+  }
+\cs_new:Npn \__planar_u:n #1 { \prop_item:Ne \l__planar_u_prop { \int_eval:n {#1} } }
+\cs_new:Npn \__planar_pos:nn #1#2
+  {
+    \clist_item:en { \prop_item:Ne \l__planar_pos_prop { \int_eval:n {#1} } } {#2}
+  }
+\cs_generate_variant:Nn \clist_item:nn { en }
+
+\cs_new_protected:Npn \__planar_centres:
+  {
+    \prop_clear:N \l__planar_bx_prop
+    \prop_clear:N \l__planar_by_prop
+    \seq_map_indexed_inline:Nn \l__planar_layers_seq
+      {
+        \int_zero:N \l__planar_idx_int
+        \int_zero:N \l__planar_out_int
+        \int_zero:N \l__planar_j_int
+        \tl_map_inline:nn {##2}
+          {
+            \int_incr:N \l__planar_j_int
+            \str_if_eq:eeT { \__planar_type:n {####1} } { box }
+              { \__planar_centre:nn {##1} {####1} }
+            \int_add:Nn \l__planar_idx_int { \__planar_in:n {####1} }
+            \int_add:Nn \l__planar_out_int { \__planar_out:n {####1} }
+          }
+      }
+  }
+\cs_new_protected:Npn \__planar_centre:nn #1#2
+  {
+    \int_set:Nn \l__planar_pa_int { \__planar_in:n {#2} }
+    \int_set:Nn \l__planar_pb_int { \__planar_out:n {#2} }
+    \fp_zero:N \l__planar_acc_fp
+    \int_zero:N \l__planar_c_int
+    \int_compare:nNnT \l__planar_pa_int > 0
+      {
+        \fp_zero:N \l__planar_mean_fp
+        \int_step_inline:nn { \l__planar_pa_int }
+          {
+            \fp_add:Nn \l__planar_mean_fp
+              { \__planar_pos:nn { #1 - 1 } { \l__planar_idx_int + ##1 } }
+          }
+        \fp_add:Nn \l__planar_acc_fp { \l__planar_mean_fp / \l__planar_pa_int }
+        \int_incr:N \l__planar_c_int
+      }
+    \int_compare:nNnT \l__planar_pb_int > 0
+      {
+        \fp_zero:N \l__planar_mean_fp
+        \int_step_inline:nn { \l__planar_pb_int }
+          {
+            \fp_add:Nn \l__planar_mean_fp
+              { \__planar_pos:nn {#1} { \l__planar_out_int + ##1 } }
+          }
+        \fp_add:Nn \l__planar_acc_fp { \l__planar_mean_fp / \l__planar_pb_int }
+        \int_incr:N \l__planar_c_int
+      }
+    \int_compare:nNnT \l__planar_c_int = 0
+      {
+        \fp_set:Nn \l__planar_w_fp
+          {
+            ( \prop_item:Ne \l__planar_bwidth_prop
+                { \__planar_key:nn {#1} { \l__planar_j_int } }
+              + \c__planar_clear_fp ) / \l__planar_s_fp
+          }
+        \__planar_virtual:nn { #1 - 1 } { \l__planar_idx_int }
+        \__planar_virtual:nn {#1} { \l__planar_out_int }
+      }
+    \fp_set:Nn \l__planar_acc_fp
+      {
+        \l__planar_s_fp *
+        ( \int_compare:nNnTF \l__planar_c_int = 0
+            { 0 } { \l__planar_acc_fp / \l__planar_c_int } )
+      }
+    \prop_put:Nee \l__planar_bx_prop { \__planar_key:nn {#1} { \l__planar_j_int } }
+      { \fp_use:N \l__planar_acc_fp }
+    \prop_put:Nee \l__planar_by_prop { \__planar_key:nn {#1} { \l__planar_j_int } }
+      { \fp_eval:n { ( \__planar_u:n { #1 - 1 } + \__planar_u:n {#1} ) / 2 } }
+  }
+% A disc without strands sits between its neighbours on seam #1 (#2 strands
+% before it).
+\cs_new_protected:Npn \__planar_virtual:nn #1#2
+  {
+    \fp_set:Nn \l__planar_tmp_fp { \l__planar_star_fp / \l__planar_s_fp }
+    \bool_lazy_and:nnTF
+      { \int_compare_p:nNn {#2} > 0 }
+      { \int_compare_p:nNn {#2} < { \__planar_count:n {#1} } }
+      {
+        \fp_add:Nn \l__planar_acc_fp
+          {
+            ( \__planar_pos:nn {#1} {#2} + \__planar_pos:nn {#1} { #2 + 1 }
+              + \l__planar_tmp_fp ) / 2
+          }
+        \int_incr:N \l__planar_c_int
+      }
+      {
+        \int_compare:nNnTF {#2} > 0
+          {
+            \fp_add:Nn \l__planar_acc_fp
+              { \__planar_pos:nn {#1} {#2} + 0.5 + \l__planar_tmp_fp + \l__planar_w_fp }
+            \int_incr:N \l__planar_c_int
+          }
+          {
+            \int_compare:nNnT { \__planar_count:n {#1} } > 0
+              {
+                \fp_add:Nn \l__planar_acc_fp
+                  { \__planar_pos:nn {#1} { 1 } - 0.5 - \l__planar_w_fp }
+                \int_incr:N \l__planar_c_int
+              }
+          }
+      }
+  }
+
+% Extent of the picture and the size of the outer disc.
+\cs_new_protected:Npn \__planar_extent:
+  {
+    \fp_set:Nn \l__planar_xmin_fp { inf }
+    \fp_set:Nn \l__planar_xmax_fp { -inf }
+    \prop_map_inline:Nn \l__planar_pos_prop
+      {
+        \clist_map_inline:nn {##2}
+          {
+            \fp_set:Nn \l__planar_xmin_fp
+              { min ( \l__planar_xmin_fp , ####1 * \l__planar_s_fp ) }
+            \fp_set:Nn \l__planar_xmax_fp
+              { max ( \l__planar_xmax_fp , ####1 * \l__planar_s_fp ) }
+          }
+      }
+    \prop_map_inline:Nn \l__planar_bx_prop
+      {
+        \fp_set:Nn \l__planar_xmin_fp
+          {
+            min ( \l__planar_xmin_fp , ##2
+              - \prop_item:Nn \l__planar_bwidth_prop {##1} - \l__planar_star_fp )
+          }
+        \fp_set:Nn \l__planar_xmax_fp
+          { max ( \l__planar_xmax_fp , ##2 + \prop_item:Nn \l__planar_bwidth_prop {##1} ) }
+      }
+    \fp_compare:nNnT \l__planar_xmin_fp > \l__planar_xmax_fp
+      {
+        \fp_zero:N \l__planar_xmin_fp
+        \fp_zero:N \l__planar_xmax_fp
+      }
+    \fp_set:Nn \l__planar_xc_fp { ( \l__planar_xmin_fp + \l__planar_xmax_fp ) / 2 }
+    \fp_set:Nn \l__planar_uc_fp { \__planar_u:n { \l__planar_N_int } / 2 }
+    \fp_set:Nn \l__planar_hwc_fp { ( \l__planar_xmax_fp - \l__planar_xmin_fp ) / 2 }
+    \fp_set:Nn \l__planar_hw_fp { \l__planar_hwc_fp + \l__planar_margin_fp }
+    \fp_set:Nn \l__planar_hh_fp
+      { max ( - \l__planar_uc_fp + 0.6 * \l__planar_margin_fp , 0.35 ) }
+    \fp_set:Nn \l__planar_dl_fp
+      { \l__planar_hwc_fp + \bool_if:NTF \l__planar_stars_bool { 0.42 } { 0.15 } }
+    \str_case:Vn \l__planar_outer_tl
+      {
+        { circle }
+          {
+            \fp_set:Nn \l__planar_A_fp
+              {
+                max ( sqrt ( \l__planar_hw_fp ^ 2 + \l__planar_hh_fp ^ 2 ) ,
+                  \l__planar_dl_fp , 0.5 )
+              }
+            \fp_set_eq:NN \l__planar_B_fp \l__planar_A_fp
+          }
+        { ellipse }
+          {
+            \fp_set:Nn \l__planar_A_fp
+              { max ( 1.4142 * \l__planar_hw_fp , \l__planar_dl_fp , 0.5 ) }
+            \fp_set:Nn \l__planar_B_fp { 1.4142 * \l__planar_hh_fp }
+          }
+        { rectangle }
+          {
+            \fp_set:Nn \l__planar_A_fp
+              { max ( \l__planar_hw_fp , \l__planar_dl_fp , 0.45 ) }
+            \fp_set_eq:NN \l__planar_B_fp \l__planar_hh_fp
+          }
+        { none }
+          {
+            \fp_set:Nn \l__planar_A_fp { max ( \l__planar_hw_fp , 0.3 ) }
+            \fp_set_eq:NN \l__planar_B_fp \l__planar_hh_fp
+          }
+      }
+    \fp_set:Nn \l__planar_F_fp { \l__planar_A_fp + \l__planar_B_fp + 2 }
+    \bool_if:NTF \l__planar_vertical_bool
+      {
+        \fp_set:Nn \l__planar_pagew_fp { 2 * \l__planar_A_fp }
+        \fp_set:Nn \l__planar_pageh_fp { 2 * \l__planar_B_fp }
+      }
+      {
+        \fp_set:Nn \l__planar_pagew_fp { 2 * \l__planar_B_fp }
+        \fp_set:Nn \l__planar_pageh_fp { 2 * \l__planar_A_fp }
+      }
+  }
+\cs_generate_variant:Nn \str_case:nn { V }
+
+% ---------------------------------------------------------------------------
+% Drawing
+%
+% Everything is drawn in local coordinates (x across the strands, u along the
+% composition, both in cm), centred on the outer disc and then mapped to the
+% page by the orientation.  Each layer is a horizontal slab.  The shaded
+% regions of a slab are filled with the even-odd rule: every piece of string
+% is closed up outside the slab (above, below or far to the left), so that
+% crossing a string inside the slab always switches between shaded and
+% unshaded; the region on the far left, at the star of the outer disc, is
+% then fixed by the parity of the pieces closed on the left.
+% ---------------------------------------------------------------------------
+\cs_new:Npn \__planar_P:nn #1#2
+  {
+    ( \fp_eval:n { round ( (#1) - \l__planar_xc_fp , 4 ) } ,
+      \fp_eval:n { round ( (#2) - \l__planar_uc_fp , 4 ) } )
+  }
+\cs_new:Npn \__planar_far_left: { \l__planar_xc_fp - \l__planar_F_fp - 1 }
+\cs_new:Npn \__planar_bez:nnnnnnnn #1#2#3#4#5#6#7#8
+  {
+    \__planar_P:nn {#1} {#2} ~ .. ~ controls ~ \__planar_P:nn {#3} {#4} ~ and ~
+    \__planar_P:nn {#5} {#6} ~ .. ~ \__planar_P:nn {#7} {#8}
+  }
+\cs_new:Npn \__planar_top:n #1
+  { \fp_eval:n { \l__planar_s_fp * \clist_item:Nn \l__planar_top_clist {#1} } }
+\cs_new:Npn \__planar_bot:n #1
+  { \fp_eval:n { \l__planar_s_fp * \clist_item:Nn \l__planar_bot_clist {#1} } }
+
+% Slab #1 (from u = #2 down to u = #3) whose closed pieces are in
+% \l__planar_path_tl, #4 of them closed on the left.
+\cs_new_protected:Npn \__planar_shade_slab:nnn #1#2#3
+  {
+    \bool_xor:nnT { \int_if_odd_p:n {#3} } { \l__planar_negative_bool }
+      {
+        \tl_put_right:Ne \l__planar_path_tl
+          {
+            \__planar_P:nn { \__planar_far_left: - 1 } { #2 - 2 }
+            ~ rectangle ~
+            \__planar_P:nn { \l__planar_xc_fp + \l__planar_F_fp + 2 } { #1 + 2 }
+          }
+      }
+    \tl_if_empty:NF \l__planar_path_tl
+      {
+        \tl_put_right:Ne \l__planar_shade_tl
+          {
+            \exp_not:N \scope
+            \exp_not:N \clip
+              \__planar_P:nn { \l__planar_xc_fp - \l__planar_F_fp } { #2 - \c__planar_clip_fp }
+              ~ rectangle ~
+              \__planar_P:nn { \l__planar_xc_fp + \l__planar_F_fp } { #1 + \c__planar_clip_fp } ;
+            \exp_not:N \fill [ pa~shaded , even~odd~rule ]
+              \exp_not:V \l__planar_path_tl ;
+            \exp_not:N \endscope
+          }
+      }
+  }
+
+% A straight strand from (#1, #3) down to (#2, #4).
+\cs_new_protected:Npn \__planar_piece_id:nnnn #1#2#3#4
+  {
+    \tl_set:Ne \l__planar_pt_tl
+      {
+        \__planar_bez:nnnnnnnn {#1} {#3} {#1} { ( #3 + #4 ) / 2 }
+          {#2} { ( #3 + #4 ) / 2 } {#2} {#4}
+      }
+    \tl_put_right:Ne \l__planar_strings_tl
+      { \exp_not:N \draw [ pa~string ] \exp_not:V \l__planar_pt_tl ; }
+    \tl_put_right:Ne \l__planar_path_tl
+      {
+        \__planar_P:nn {#1} { #3 + \c__planar_ext_fp } --
+        \exp_not:V \l__planar_pt_tl --
+        \__planar_P:nn {#2} { #4 - \c__planar_ext_fp } --
+        \__planar_P:nn { \__planar_far_left: } { #4 - \c__planar_ext_fp } --
+        \__planar_P:nn { \__planar_far_left: } { #3 + \c__planar_ext_fp } -- cycle ~
+      }
+    \int_incr:N \l__planar_through_int
+  }
+% A cup (#5 = 1) hanging from the points #1, #2 at height #3, or a cap
+% (#5 = -1) standing on them; #4 is the height of the layer.
+\cs_new_protected:Npn \__planar_piece_turn:nnnnn #1#2#3#4#5
+  {
+    \fp_set:Nn \l__planar_d_fp
+      { 1.3333 * min ( 0.62 * #4 , 0.5 * ( #2 - #1 ) + 0.06 ) }
+    \tl_set:Ne \l__planar_pt_tl
+      {
+        \__planar_bez:nnnnnnnn {#1} {#3}
+          {#1} { #3 - #5 * \l__planar_d_fp }
+          {#2} { #3 - #5 * \l__planar_d_fp } {#2} {#3}
+      }
+    \tl_put_right:Ne \l__planar_strings_tl
+      { \exp_not:N \draw [ pa~string ] \exp_not:V \l__planar_pt_tl ; }
+    \tl_put_right:Ne \l__planar_path_tl
+      {
+        \__planar_P:nn {#1} { #3 + #5 * \c__planar_ext_fp } --
+        \exp_not:V \l__planar_pt_tl --
+        \__planar_P:nn {#2} { #3 + #5 * \c__planar_ext_fp } -- cycle ~
+      }
+  }
+
+% Legs of disc #1 (key) at (cx, cy): a leg from the seam point (#3, #4) on
+% side #2 (t or b), attached to the disc at angle #5 (or at x = #5 for
+% rectangular discs).
+\cs_new_protected:Npn \__planar_leg:nnnnn #1#2#3#4#5
+  {
+    \str_if_eq:VnTF \l__planar_boxshape_tl { circle }
+      {
+        \fp_set:Nn \l__planar_ax_fp { \l__planar_cx_fp + \l__planar_bw_fp * cosd (#5) }
+        \fp_set:Nn \l__planar_au_fp { \l__planar_cy_fp + \l__planar_bw_fp * sind (#5) }
+        \fp_set:Nn \l__planar_phi_fp { cosd (#5) }
+        \fp_set:Nn \l__planar_tmp_fp { sind (#5) }
+      }
+      {
+        \fp_set:Nn \l__planar_ax_fp {#5}
+        \fp_set:Nn \l__planar_au_fp
+          {
+            \l__planar_cy_fp +
+            \str_if_eq:nnTF {#2} { t } { 1 } { -1 } * \l__planar_bh_fp
+          }
+        \fp_set:Nn \l__planar_phi_fp { 0 }
+        \fp_set:Nn \l__planar_tmp_fp { \str_if_eq:nnTF {#2} { t } { 1 } { -1 } }
+      }
+    \fp_set:Nn \l__planar_d_fp { 0.45 * abs ( #4 - \l__planar_au_fp ) }
+    \tl_set:Ne \l__planar_x_tl
+      {
+        \__planar_bez:nnnnnnnn {#3} {#4}
+          {#3} { #4 - \str_if_eq:nnTF {#2} { t } { 1 } { -1 } * \l__planar_d_fp }
+          { \l__planar_ax_fp + \l__planar_d_fp * \l__planar_phi_fp }
+          { \l__planar_au_fp + \l__planar_d_fp * \l__planar_tmp_fp }
+          { \l__planar_ax_fp } { \l__planar_au_fp }
+      }
+    \tl_set:Ne \l__planar_y_tl
+      {
+        \__planar_bez:nnnnnnnn
+          { \l__planar_ax_fp } { \l__planar_au_fp }
+          { \l__planar_ax_fp + \l__planar_d_fp * \l__planar_phi_fp }
+          { \l__planar_au_fp + \l__planar_d_fp * \l__planar_tmp_fp }
+          {#3} { #4 - \str_if_eq:nnTF {#2} { t } { 1 } { -1 } * \l__planar_d_fp }
+          {#3} {#4}
+      }
+    \tl_put_right:Ne \l__planar_strings_tl
+      { \exp_not:N \draw [ pa~string ] \exp_not:V \l__planar_x_tl ; }
+    \seq_put_right:Ne \l__planar_legs_seq
+      {
+        {#2}
+        { \__planar_P:nn {#3} { #4 + \str_if_eq:nnTF {#2} { t } { 1 } { -1 } * \c__planar_ext_fp } }
+        { \exp_not:V \l__planar_x_tl }
+        { \exp_not:V \l__planar_y_tl }
+      }
+  }
+% Angle of leg #1 of #2 on the top (#3 = 1) or bottom (#3 = -1).
+\cs_new:Npn \__planar_angle:nnn #1#2#3
+  {
+    \int_compare:nNnTF {#2} > 1
+      {
+        \fp_eval:n
+          {
+            90 * #3 + #3 * min ( 65 , 30 * ( #2 - 1 ) )
+              * ( 1 - 2 * ( #1 - 1 ) / ( #2 - 1 ) )
+          }
+      }
+      { \fp_eval:n { 90 * #3 } }
+  }
+% Attachment point (x) of leg #1 of #2 on a rectangular disc.
+\cs_new:Npn \__planar_attach:nn #1#2
+  {
+    \int_compare:nNnTF {#2} > 1
+      {
+        \fp_eval:n
+          {
+            \l__planar_cx_fp + ( #1 - ( #2 + 1 ) / 2 ) *
+              min ( \l__planar_s_fp , ( 2 * \l__planar_bw_fp - 0.24 ) / ( #2 - 1 ) )
+          }
+      }
+      { \fp_use:N \l__planar_cx_fp }
+  }
+
+% The disc: item #2, number #3 in the reading order, key #1.
+\cs_new_protected:Npn \__planar_piece_box:nnn #1#2#3
+  {
+    \fp_set:Nn \l__planar_cx_fp { \prop_item:Ne \l__planar_bx_prop {#1} }
+    \fp_set:Nn \l__planar_cy_fp { \prop_item:Ne \l__planar_by_prop {#1} }
+    \fp_set:Nn \l__planar_bw_fp { \prop_item:Ne \l__planar_bwidth_prop {#1} }
+    \fp_set:Nn \l__planar_bh_fp { \prop_item:Ne \l__planar_bheight_prop {#1} }
+    \int_set:Nn \l__planar_pa_int { \__planar_in:n {#2} }
+    \int_set:Nn \l__planar_pb_int { \__planar_out:n {#2} }
+    \seq_clear:N \l__planar_legs_seq
+    % legs in clockwise order from the star: top left to right, bottom right
+    % to left
+    \int_step_inline:nn { \l__planar_pa_int }
+      {
+        \__planar_leg:nnnnn {#1} { t }
+          { \__planar_top:n { \l__planar_idx_int + ##1 } } { \l__planar_ta_tl }
+          {
+            \str_if_eq:VnTF \l__planar_boxshape_tl { circle }
+              { \__planar_angle:nnn {##1} { \l__planar_pa_int } { 1 } }
+              { \__planar_attach:nn {##1} { \l__planar_pa_int } }
+          }
+      }
+    \int_step_inline:nnnn { \l__planar_pb_int } { -1 } { 1 }
+      {
+        \__planar_leg:nnnnn {#1} { b }
+          { \__planar_bot:n { \l__planar_out_int + ##1 } } { \l__planar_tb_tl }
+          {
+            \str_if_eq:VnTF \l__planar_boxshape_tl { circle }
+              {
+                \__planar_angle:nnn {##1} { \l__planar_pb_int } { -1 }
+              }
+              { \__planar_attach:nn {##1} { \l__planar_pb_int } }
+          }
+      }
+    \bool_if:NT \l__planar_shade_bool
+      {
+        \bool_until_do:nn { \seq_if_empty_p:N \l__planar_legs_seq }
+          {
+            \seq_pop_left:NN \l__planar_legs_seq \l__planar_p_tl
+            \seq_pop_left:NN \l__planar_legs_seq \l__planar_q_tl
+            \__planar_leg_pair:VV \l__planar_p_tl \l__planar_q_tl
+          }
+      }
+    % the disc itself
+    \str_if_eq:VnTF \l__planar_boxshape_tl { circle }
+      {
+        \tl_put_right:Ne \l__planar_boxes_tl
+          {
+            \exp_not:N \path [ pa~box ]
+              \__planar_P:nn { \l__planar_cx_fp } { \l__planar_cy_fp } ~ circle ~
+              [ radius = \fp_eval:n { round ( \l__planar_bw_fp , 4 ) } ] ;
+          }
+      }
+      {
+        \tl_put_right:Ne \l__planar_boxes_tl
+          {
+            \exp_not:N \path [ pa~box ]
+              \__planar_P:nn { \l__planar_cx_fp - \l__planar_bw_fp }
+                { \l__planar_cy_fp - \l__planar_bh_fp }
+              ~ rectangle ~
+              \__planar_P:nn { \l__planar_cx_fp + \l__planar_bw_fp }
+                { \l__planar_cy_fp + \l__planar_bh_fp } ;
+          }
+      }
+    \tl_set:Ne \l__planar_label_tl { \exp_args:No \exp_not:n { \use_iv:nnnn #2 } }
+    \tl_if_blank:VTF \l__planar_label_tl
+      {
+        \bool_if:NT \l__planar_numbers_bool
+          {
+            \tl_put_right:Ne \l__planar_boxes_tl
+              {
+                \exp_not:N \node [ pa~number ] ~ at ~
+                  \__planar_P:nn { \l__planar_cx_fp } { \l__planar_cy_fp } {#3} ;
+              }
+          }
+      }
+      {
+        \tl_put_right:Ne \l__planar_boxes_tl
+          {
+            \exp_not:N \node [ pa~label ] ~ at ~
+              \__planar_P:nn { \l__planar_cx_fp } { \l__planar_cy_fp }
+              { \exp_not:V \l__planar_labelfont_tl
+                \exp_not:N \ensuremath { \exp_not:V \l__planar_label_tl } } ;
+          }
+        \bool_if:NT \l__planar_numbers_bool
+          {
+            \tl_put_right:Ne \l__planar_boxes_tl
+              {
+                \exp_not:N \node [ pa~number , anchor = south~west ] ~ at ~
+                  \__planar_P:nn { \l__planar_cx_fp + 0.75 * \l__planar_bw_fp }
+                    { \l__planar_cy_fp + 0.75 * \l__planar_bh_fp } {#3} ;
+              }
+          }
+      }
+    \bool_if:NT \l__planar_stars_bool
+      {
+        \tl_put_right:Ne \l__planar_boxes_tl
+          {
+            \exp_not:N \node [ pa~star ] ~ at ~
+              \__planar_P:nn { \l__planar_cx_fp - \l__planar_bw_fp - 0.15 }
+                { \l__planar_cy_fp }
+              { \exp_not:N \ensuremath { \exp_not:N \star } } ;
+          }
+      }
+  }
+% Two consecutive legs joined through the centre of the disc, closed outside
+% the slab.
+\cs_new_protected:Npn \__planar_leg_pair:nn #1#2
+  { \__planar_leg_pair:nnnnnnnn #1 #2 }
+\cs_generate_variant:Nn \__planar_leg_pair:nn { VV }
+\cs_new_protected:Npn \__planar_leg_pair:nnnnnnnn #1#2#3#4#5#6#7#8
+  {
+    \tl_put_right:Nn \l__planar_path_tl { #2 -- #3 -- }
+    \tl_put_right:Ne \l__planar_path_tl
+      { \__planar_P:nn { \l__planar_cx_fp } { \l__planar_cy_fp } -- }
+    \tl_put_right:Nn \l__planar_path_tl { #8 -- #6 }
+    \str_if_eq:nnTF {#1} {#5}
+      { \tl_put_right:Nn \l__planar_path_tl { -- cycle ~ } }
+      {
+        \tl_put_right:Ne \l__planar_path_tl
+          {
+            -- \__planar_P:nn { \__planar_far_left: } { \l__planar_tb_tl - \c__planar_ext_fp }
+            -- \__planar_P:nn { \__planar_far_left: } { \l__planar_ta_tl + \c__planar_ext_fp }
+            -- cycle ~
+          }
+        \int_incr:N \l__planar_through_int
+      }
+  }
+
+% Layer #1.
+\cs_new_protected:Npn \__planar_draw_layer:n #1
+  {
+    \tl_set:Ne \l__planar_ta_tl { \__planar_u:n { #1 - 1 } }
+    \tl_set:Ne \l__planar_tb_tl { \__planar_u:n {#1} }
+    \prop_get:NeN \l__planar_pos_prop { \int_eval:n { #1 - 1 } } \l__planar_top_clist
+    \prop_get:NeN \l__planar_pos_prop { \int_eval:n {#1} } \l__planar_bot_clist
+    \int_zero:N \l__planar_idx_int
+    \int_zero:N \l__planar_out_int
+    \int_zero:N \l__planar_j_int
+    \int_zero:N \l__planar_through_int
+    \tl_clear:N \l__planar_path_tl
+    \tl_set:Ne \l__planar_tmpb_tl { \__planar_layer:n {#1} }
+    \tl_map_inline:Nn \l__planar_tmpb_tl
+      {
+        \int_incr:N \l__planar_j_int
+        \str_case:en { \__planar_type:n {##1} }
+          {
+            { id }
+              {
+                \__planar_piece_id:nnnn
+                  { \__planar_top:n { \l__planar_idx_int + 1 } }
+                  { \__planar_bot:n { \l__planar_out_int + 1 } }
+                  { \l__planar_ta_tl } { \l__planar_tb_tl }
+              }
+            { ev }
+              {
+                \__planar_piece_turn:nnnnn
+                  { \__planar_top:n { \l__planar_idx_int + 1 } }
+                  { \__planar_top:n { \l__planar_idx_int + 2 } }
+                  { \l__planar_ta_tl } { \prop_item:Nn \l__planar_h_prop {#1} } { 1 }
+              }
+            { coev }
+              {
+                \__planar_piece_turn:nnnnn
+                  { \__planar_bot:n { \l__planar_out_int + 1 } }
+                  { \__planar_bot:n { \l__planar_out_int + 2 } }
+                  { \l__planar_tb_tl } { \prop_item:Nn \l__planar_h_prop {#1} } { -1 }
+              }
+            { box }
+              {
+                \int_incr:N \l__planar_box_int
+                \__planar_piece_box:nnn { \__planar_key:nn {#1} { \l__planar_j_int } }
+                  {##1} { \int_use:N \l__planar_box_int }
+              }
+          }
+        \int_add:Nn \l__planar_idx_int { \__planar_in:n {##1} }
+        \int_add:Nn \l__planar_out_int { \__planar_out:n {##1} }
+      }
+    \bool_if:NT \l__planar_shade_bool
+      {
+        \__planar_shade_slab:nnn { \l__planar_ta_tl } { \l__planar_tb_tl }
+          { \l__planar_through_int }
+      }
+  }
+\cs_generate_variant:Nn \str_case:nn { e }
+
+% Straight strands from seam #1 to the outer boundary (#2 = 1 up, -1 down).
+\cs_new_protected:Npn \__planar_draw_margin:nn #1#2
+  {
+    \prop_get:NeN \l__planar_pos_prop { \int_eval:n {#1} } \l__planar_top_clist
+    \tl_set:Ne \l__planar_ta_tl { \__planar_u:n {#1} }
+    \tl_set:Ne \l__planar_tb_tl
+      { \fp_eval:n { \l__planar_uc_fp + #2 * ( \l__planar_B_fp + 1 ) } }
+    \tl_clear:N \l__planar_path_tl
+    \int_zero:N \l__planar_through_int
+    \clist_map_inline:Nn \l__planar_top_clist
+      {
+        \tl_set:Ne \l__planar_x_tl { \fp_eval:n { ##1 * \l__planar_s_fp } }
+        \tl_put_right:Ne \l__planar_strings_tl
+          {
+            \exp_not:N \draw [ pa~string ]
+              \__planar_P:nn { \l__planar_x_tl } { \l__planar_ta_tl } --
+              \__planar_P:nn { \l__planar_x_tl } { \l__planar_tb_tl } ;
+          }
+        \tl_put_right:Ne \l__planar_path_tl
+          {
+            \__planar_P:nn { \l__planar_x_tl } { \l__planar_ta_tl - #2 * \c__planar_ext_fp } --
+            \__planar_P:nn { \l__planar_x_tl } { \l__planar_tb_tl + #2 } --
+            \__planar_P:nn { \__planar_far_left: } { \l__planar_tb_tl + #2 } --
+            \__planar_P:nn { \__planar_far_left: } { \l__planar_ta_tl - #2 * \c__planar_ext_fp }
+            -- cycle ~
+          }
+        \int_incr:N \l__planar_through_int
+      }
+    \bool_if:NT \l__planar_shade_bool
+      {
+        \int_compare:nNnTF {#2} > 0
+          {
+            \__planar_shade_slab:nnn { \l__planar_tb_tl } { \l__planar_ta_tl }
+              { \l__planar_through_int }
+          }
+          {
+            \__planar_shade_slab:nnn { \l__planar_ta_tl } { \l__planar_tb_tl }
+              { \l__planar_through_int }
+          }
+      }
+  }
+
+% The outer boundary and its star, and the labels of the boundary points.
+\cs_new:Npn \__planar_outer_path:
+  {
+    \str_case:Vn \l__planar_outer_tl
+      {
+        { circle }
+          { (0,0) ~ circle ~ [ radius = \fp_eval:n { round ( \l__planar_A_fp , 4 ) } ] }
+        { ellipse }
+          {
+            (0,0) ~ ellipse ~
+            [ x~radius = \fp_eval:n { round ( \l__planar_A_fp , 4 ) } ,
+              y~radius = \fp_eval:n { round ( \l__planar_B_fp , 4 ) } ]
+          }
+        { rectangle } { \__planar_outer_rect: }
+        { none } { \__planar_outer_rect: }
+      }
+  }
+\cs_new:Npn \__planar_outer_rect:
+  {
+    ( \fp_eval:n { round ( - \l__planar_A_fp , 4 ) } ,
+      \fp_eval:n { round ( - \l__planar_B_fp , 4 ) } ) ~ rectangle ~
+    ( \fp_eval:n { round ( \l__planar_A_fp , 4 ) } ,
+      \fp_eval:n { round ( \l__planar_B_fp , 4 ) } )
+  }
+% Height (centred) where the vertical line at x = #1 (centred) meets the
+% boundary.
+\cs_new:Npn \__planar_rim:n #1
+  {
+    \str_case:Vn \l__planar_outer_tl
+      {
+        { circle }
+          { sqrt ( max ( \l__planar_A_fp ^ 2 - ( #1 ) ^ 2 , 0 ) ) }
+        { ellipse }
+          { \l__planar_B_fp * sqrt ( max ( 1 - ( #1 ) ^ 2 / \l__planar_A_fp ^ 2 , 0 ) ) }
+        { rectangle } { \l__planar_B_fp }
+        { none } { \l__planar_B_fp }
+      }
+  }
+\cs_new_protected:Npn \__planar_label_point:nnn #1#2#3
+  {
+    \fp_set:Nn \l__planar_ax_fp { #1 * \l__planar_s_fp - \l__planar_xc_fp }
+    \fp_set:Nn \l__planar_au_fp { #2 * ( \__planar_rim:n { \l__planar_ax_fp } ) }
+    \fp_set:Nn \l__planar_d_fp
+      { 0.22 / max ( sqrt ( \l__planar_ax_fp ^ 2 + \l__planar_au_fp ^ 2 ) , 0.01 ) }
+    \tl_put_right:Ne \l__planar_boxes_tl
+      {
+        \exp_not:N \node [ pa~boundary~label ] ~ at ~
+          ( \fp_eval:n { round ( \l__planar_ax_fp * ( 1 + \l__planar_d_fp ) , 4 ) } ,
+            \fp_eval:n { round ( \l__planar_au_fp * ( 1 + \l__planar_d_fp ) , 4 ) } )
+          {#3} ;
+      }
+  }
+% Number the boundary points clockwise on the page, starting at the star.
+\cs_new_protected:Npn \__planar_boundary_labels:
+  {
+    \int_zero:N \l__planar_k_int
+    \prop_get:NnN \l__planar_pos_prop { 0 } \l__planar_top_clist
+    \prop_get:NeN \l__planar_pos_prop { \int_use:N \l__planar_N_int } \l__planar_bot_clist
+    \bool_xor:nnTF { \l__planar_vertical_bool } { \l__planar_reverse_bool }
+      {
+        \clist_map_inline:Nn \l__planar_top_clist
+          {
+            \int_incr:N \l__planar_k_int
+            \__planar_label_point:nnn {##1} { 1 } { \int_use:N \l__planar_k_int }
+          }
+        \clist_reverse:N \l__planar_bot_clist
+        \clist_map_inline:Nn \l__planar_bot_clist
+          {
+            \int_incr:N \l__planar_k_int
+            \__planar_label_point:nnn {##1} { -1 } { \int_use:N \l__planar_k_int }
+          }
+      }
+      {
+        \clist_map_inline:Nn \l__planar_bot_clist
+          {
+            \int_incr:N \l__planar_k_int
+            \__planar_label_point:nnn {##1} { -1 } { \int_use:N \l__planar_k_int }
+          }
+        \clist_reverse:N \l__planar_top_clist
+        \clist_map_inline:Nn \l__planar_top_clist
+          {
+            \int_incr:N \l__planar_k_int
+            \__planar_label_point:nnn {##1} { 1 } { \int_use:N \l__planar_k_int }
+          }
+      }
+  }
+
+% Orientation: local (x, u) to the page.
+\cs_new:Npn \__planar_cm:
+  {
+    \bool_if:NTF \l__planar_vertical_bool
+      { \bool_if:NTF \l__planar_reverse_bool { 1 , 0 , 0 , -1 } { 1 , 0 , 0 , 1 } }
+      { \bool_if:NTF \l__planar_reverse_bool { 0 , -1 , 1 , 0 } { 0 , -1 , -1 , 0 } }
+  }
+
+\cs_new_protected:Npn \__planar_check_shading:
+  {
+    \bool_set_eq:NN \l__planar_shade_bool \l__planar_shading_bool
+    \bool_if:NT \l__planar_shade_bool
+      {
+        \int_if_odd:nT { \__planar_count:n { 0 } + \__planar_count:n { \l__planar_N_int } }
+          { \bool_set_false:N \l__planar_shade_bool }
+        \seq_map_inline:Nn \l__planar_layers_seq
+          {
+            \tl_map_inline:nn {##1}
+              {
+                \int_if_odd:nT { \__planar_in:n {####1} + \__planar_out:n {####1} }
+                  {
+                    \str_if_eq:eeT { \__planar_type:n {####1} } { box }
+                      { \bool_set_false:N \l__planar_shade_bool }
+                  }
+              }
+          }
+        \bool_if:NF \l__planar_shade_bool
+          { \msg_warning:nn { planaralgebra } { no-shading } }
+      }
+  }
+
+% Draw the word in \l__planar_layers_seq as the next factor of the picture.
+\cs_new_protected:Npn \__planar_draw_word:
+  {
+    \__planar_counts:
+    \__planar_check_shading:
+    \__planar_box_sizes:
+    \__planar_heights:
+    \__planar_all_gaps:
+    \__planar_layout:
+    \__planar_centres:
+    \__planar_extent:
+    \tl_clear:N \l__planar_shade_tl
+    \tl_clear:N \l__planar_strings_tl
+    \tl_clear:N \l__planar_boxes_tl
+    \int_zero:N \l__planar_box_int
+    \__planar_draw_margin:nn { 0 } { 1 }
+    \int_step_inline:nn { \l__planar_N_int } { \__planar_draw_layer:n {##1} }
+    \__planar_draw_margin:nn { \l__planar_N_int } { -1 }
+    \bool_if:NT \l__planar_labels_bool
+      {
+        \str_if_eq:VnF \l__planar_outer_tl { none }
+          { \__planar_boundary_labels: }
+      }
+    \str_if_eq:VnF \l__planar_outer_tl { none }
+      {
+        \tl_put_right:Ne \l__planar_boxes_tl
+          {
+            \exp_not:N \path [ pa~outer ] \__planar_outer_path: ;
+          }
+        \bool_if:NT \l__planar_stars_bool
+          {
+            \tl_put_right:Ne \l__planar_boxes_tl
+              {
+                \exp_not:N \node [ pa~star ] ~ at ~
+                  ( \fp_eval:n { round ( - \l__planar_A_fp + 0.2 , 4 ) } , 0 )
+                  { \exp_not:N \ensuremath { \exp_not:N \star } } ;
+              }
+          }
+      }
+    \tl_put_right:Ne \l__planar_draw_tl
+      {
+        \exp_not:N \scope
+          [ shift = { ( \fp_eval:n { round ( \l__planar_off_fp + \l__planar_pagew_fp / 2 , 4 ) } , 0 ) } ]
+        \exp_not:N \scope [ cm = { \__planar_cm: , (0,0) } ]
+        \exp_not:N \path \__planar_outer_rect: ;
+        \exp_not:N \scope [ overlay ]
+        \exp_not:N \clip \__planar_outer_path: ;
+        \exp_not:V \l__planar_shade_tl
+        \exp_not:V \l__planar_strings_tl
+        \exp_not:N \endscope
+        \exp_not:V \l__planar_boxes_tl
+        \exp_not:N \endscope
+        \tl_if_empty:NF \l__planar_caption_tl
+          {
+            \exp_not:N \node [ pa~name ] ~ at ~
+              ( 0 , \fp_eval:n { round ( - \l__planar_pageh_fp / 2 , 4 ) } )
+              { \exp_not:V \l__planar_caption_tl } ;
+          }
+        \exp_not:N \endscope
+      }
+    \fp_add:Nn \l__planar_off_fp { \l__planar_pagew_fp }
+  }
+
+% ---------------------------------------------------------------------------
+% Rendering
+% ---------------------------------------------------------------------------
+\cs_new_protected:Npn \__planar_emit:n #1
+  { \tl_put_right:Ne \l__planar_draw_tl {#1} }
+
+\cs_new_protected:Npn \__planar_separator:
+  {
+    \tl_if_blank:VTF \l__planar_separator_tl
+      { \fp_add:Nn \l__planar_off_fp { \l__planar_gap_fp } }
+      {
+        \__planar_measure:n { $ \l__planar_separator_tl $ }
+        \__planar_emit:n
+          {
+            \exp_not:N \node [ pa~separator ] ~ at ~
+              ( \fp_eval:n
+                  { round ( \l__planar_off_fp + \l__planar_gap_fp
+                      + \l__planar_wd_fp / 2 , 4 ) } , 0 )
+              { \exp_not:N \ensuremath { \exp_not:V \l__planar_separator_tl } } ;
+          }
+        \fp_add:Nn \l__planar_off_fp
+          { 2 * \l__planar_gap_fp + \l__planar_wd_fp }
+      }
+  }
+
+\cs_new_protected:Npn \__planar_coefficient:
+  {
+    \bool_lazy_and:nnT
+      { \l__planar_coefficient_bool }
+      { \int_compare_p:nNn \l__planar_loops_int > 0 }
+      {
+        \tl_set:Ne \l__planar_coeff_tl
+          {
+            { \exp_not:V \l__planar_loop_tl }
+            \int_compare:nNnT \l__planar_loops_int > 1
+              { \c_math_superscript_token { \int_use:N \l__planar_loops_int } }
+          }
+        \__planar_measure:n { $ \l__planar_coeff_tl $ }
+        \__planar_emit:n
+          {
+            \exp_not:N \node [ pa~coefficient ] ~ at ~
+              ( \fp_eval:n { round ( \l__planar_off_fp + \l__planar_wd_fp , 4 ) } , 0 )
+              { \exp_not:N \ensuremath { \exp_not:V \l__planar_coeff_tl } } ;
+          }
+        \fp_add:Nn \l__planar_off_fp { \l__planar_wd_fp + 0.12 }
+      }
+  }
+
+\cs_new_protected:Npn \__planar_render:
+  {
+    \tl_clear:N \l__planar_draw_tl
+    \tl_clear:N \l__planar_caption_tl
+    \fp_zero:N \l__planar_off_fp
+    \bool_if:NF \l__planar_error_bool { \__planar_substitute: }
+    \bool_if:NTF \l__planar_error_bool
+      {
+        \str_gclear:N \g__planar_nf_str
+        \int_gzero:N \g__planar_loops_int
+        \int_gzero:N \g__planar_boxes_int
+        \__planar_emit:n { \exp_not:N \node [ pa~error ] ~ at ~ (0,0) { ?? } ; }
+      }
+      {
+        \__planar_analyse:
+        \bool_if:NT \l__planar_reduce_bool
+          {
+            \seq_set_eq:NN \l__planar_layers_seq \l__planar_nf_seq
+            \__planar_coefficient:
+          }
+        \__planar_draw_word:
+      }
+    \__planar_picture:
+  }
+
+\cs_new_protected:Npn \__planar_picture:
+  {
+    \tl_if_empty:NT \l__planar_draw_tl
+      { \tl_set:Nn \l__planar_draw_tl { \path (0,0) ; } }
+    \tl_set:Ne \l__planar_opts_tl
+      {
+        baseline = { \exp_not:V \l__planar_baseline_tl }
+        \exp_not:V \l__planar_tikz_tl
+      }
+    \__planar_picture:VV \l__planar_opts_tl \l__planar_draw_tl
+  }
+\cs_new_protected:Npn \__planar_picture:nn #1#2
+  {
+    \__planar_standalone_nest:
+    \begin{tikzpicture} [ #1 ] #2 \end{tikzpicture}
+  }
+\cs_generate_variant:Nn \__planar_picture:nn { VV }
+
+% \PAdefine stores the word (after insertions, and reduced with `reduce').
+\cs_new_protected:Npn \__planar_store:
+  {
+    \bool_if:NF \l__planar_error_bool { \__planar_substitute: }
+    \bool_if:NF \l__planar_error_bool
+      {
+        \bool_if:NT \l__planar_reduce_bool
+          {
+            \__planar_analyse:
+            \seq_set_eq:NN \l__planar_layers_seq \l__planar_nf_seq
+          }
+        \tl_clear:N \l__planar_word_tl
+        \seq_map_inline:Nn \l__planar_layers_seq
+          { \tl_put_right:Nn \l__planar_word_tl { {##1} } }
+        \prop_gput:NVV \g__planar_defs_prop \l__planar_gen_tl \l__planar_word_tl
+      }
+  }
+\cs_generate_variant:Nn \prop_gput:Nnn { NVV }
+
+% ---------------------------------------------------------------------------
+% Chains of \PA commands
+%
+% \PA{2,2}{id, T(1,1)}\PA{2,0}{ev} is one diagram: the first \PA opens a
+% group and collects layers; each \PA looks at the next token (skipping
+% spaces) and draws the diagram when it is not another \PA.
+% ---------------------------------------------------------------------------
+\bool_new:N \l__planar_pa_defined_bool
+\cs_new_protected:Npn \__planar_layer_cmd:nnn #1#2#3
+  {
+    \bool_if:NF \g__planar_chain_bool
+      {
+        \group_begin:
+        \bool_gset_true:N \g__planar_chain_bool
+        \__planar_start:
+      }
+    \keys_set:nn { planaralgebra } {#1}
+    \__planar_add_layer:nn {#2} {#3}
+    \peek_after:Nw \__planar_peek:
+  }
+\prg_new_conditional:Npnn \__planar_if_layer:N #1 { TF }
+  {
+    \bool_lazy_or:nnTF
+      { \token_if_eq_meaning_p:NN #1 \PAlayer }
+      {
+        \l__planar_pa_defined_bool &&
+        \token_if_eq_meaning_p:NN #1 \PA
+      }
+      { \prg_return_true: } { \prg_return_false: }
+  }
+\cs_new_protected:Npn \__planar_peek:
+  {
+    \__planar_if_layer:NTF \l_peek_token
+      { }
+      {
+        \token_if_eq_catcode:NNTF \l_peek_token \c_space_token
+          { \peek_remove_spaces:n { \peek_after:Nw \__planar_peek_after_space: } }
+          { \__planar_finish: }
+      }
+  }
+\cs_new_protected:Npn \__planar_peek_after_space:
+  {
+    \__planar_if_layer:NTF \l_peek_token
+      { }
+      { \__planar_finish: \c_space_tl }
+  }
+\cs_new_protected:Npn \__planar_finish:
+  {
+    \bool_gset_false:N \g__planar_chain_bool
+    \bool_if:NTF \l__planar_capture_bool
+      { \__planar_store: }
+      { \__planar_render: }
+    \group_end:
+  }
+
+% ---------------------------------------------------------------------------
+% The standalone class (as in the temperleylieb and plumber packages)
+%
+% With the `tikz' (or `multi=tikzpicture') option, standalone makes every
+% top-level tikzpicture a cropped page of its own, which cannot be done from
+% inside a formula.  So the formula is made the page instead (standalone's
+% `math' handling turns \[...\] and \(...\) into pages), and a diagram inside
+% a formula is marked as nested so that it never tries to start a page.
+% ---------------------------------------------------------------------------
+\cs_new_protected:Npn \__planar_standalone_nest:
+  {
+    \bool_lazy_and:nnT
+      { \cs_if_exist_p:N \sa@orig@tikzpicture }
+      { \mode_if_math_p: }
+      {
+        \int_compare:nNnT \sa@internal = 0
+          {
+            \msg_warning:nn { planaralgebra } { standalone-formula }
+            \int_incr:N \sa@internal
+          }
+      }
+  }
+\cs_new_protected:Npn \__planar_standalone_math:
+  {
+    \bool_lazy_all:nT
+      {
+        { \cs_if_exist_p:N \sa@orig@tikzpicture }
+        { \cs_if_exist_p:N \sa@math }
+        { ! \legacy_if_p:n { sa@math } }
+      }
+      { \sa@math }
+  }
+\AtBeginDocument { \__planar_standalone_math: }
+
+% ---------------------------------------------------------------------------
+% User interface
+% ---------------------------------------------------------------------------
+\NewDocumentCommand \paset { m }
+  { \keys_set:nn { planaralgebra } {#1} }
+
+\NewDocumentCommand \PAlayer { O{} m m }
+  { \__planar_layer_cmd:nnn {#1} {#2} {#3} }
+
+\cs_if_free:NT \PA
+  {
+    \bool_set_true:N \l__planar_pa_defined_bool
+    \NewDocumentCommand \PA { O{} m m }
+      { \__planar_layer_cmd:nnn {#1} {#2} {#3} }
+  }
+
+\NewDocumentCommand \PAdefine { O{} m +m }
+  {
+    \group_begin:
+      \keys_set:nn { planaralgebra } {#1}
+      \bool_set_true:N \l__planar_capture_bool
+      \tl_set:Ne \l__planar_gen_tl { \tl_to_str:n {#2} }
+      \tl_trim_spaces:N \l__planar_gen_tl
+      \hbox_set:Nn \l__planar_tmp_box {#3}
+    \group_end:
+  }
+
+\NewDocumentCommand \PAgenerators { s O{} }
+  {
+    \group_begin:
+      \keys_set:nn { planaralgebra } {#2}
+      \tl_clear:N \l__planar_draw_tl
+      \fp_zero:N \l__planar_off_fp
+      \bool_set_true:N \l__planar_first_bool
+      \IfBooleanT {#1}
+        {
+          \clist_set:Ne \l__planar_list_clist
+            {
+              \clist_map_function:NN \l__planar_list_clist
+                \__planar_drop_id:n
+            }
+        }
+      \clist_map_inline:Nn \l__planar_list_clist
+        {
+          \__planar_start:
+          \__planar_add_layer:nn { } {##1}
+          \bool_if:NF \l__planar_error_bool
+            {
+              \bool_if:NF \l__planar_first_bool { \__planar_separator: }
+              \bool_set_false:N \l__planar_first_bool
+              \bool_if:NTF \l__planar_names_bool
+                {
+                  \tl_set:Ne \l__planar_caption_tl
+                    {
+                      \exp_not:N \texttt
+                        { \tl_to_str:n {##1} }
+                    }
+                  \regex_replace_all:nnN { \( ([0-9]+) ; ([0-9]+) \) }
+                    { (\1,\2) } \l__planar_caption_tl
+                }
+                { \tl_clear:N \l__planar_caption_tl }
+              \__planar_draw_word:
+            }
+        }
+      \__planar_picture:
+    \group_end:
+  }
+
+\cs_new:Npn \__planar_drop_id:n #1
+  {
+    \str_if_eq:eeF { \prop_item:Ne \c__planar_alias_prop { \tl_trim_spaces:n {#1} } }
+      { id }
+      { \exp_not:n { {#1} , } }
+  }
+
+\NewExpandableDocumentCommand \PAlastloops { }
+  { \int_use:N \g__planar_loops_int }
+\NewExpandableDocumentCommand \PAlastboxes { }
+  { \int_use:N \g__planar_boxes_int }
+\NewExpandableDocumentCommand \PAlastnormalform { }
+  { \str_use:N \g__planar_nf_str }
+
+% ---------------------------------------------------------------------------
+% TikZ styles (customise with \tikzset or the *style keys)
+% ---------------------------------------------------------------------------
+\ExplSyntaxOff
+\tikzset{
+  pa string/.style={line width=0.7pt, line cap=round},
+  pa shaded/.style={fill=red!10!blue!20!gray!30!white},
+  pa box/.style={draw, line width=0.8pt, fill=white},
+  pa outer/.style={draw, line width=1.2pt},
+  pa star/.style={inner sep=0pt, font=\footnotesize},
+  pa label/.style={inner sep=0pt},
+  pa number/.style={inner sep=0.5pt, font=\tiny, text=gray},
+  pa boundary label/.style={inner sep=0pt, font=\tiny},
+  pa name/.style={anchor=north, inner sep=0pt, yshift=-4pt, font=\small,
+    text height=1.6ex, text depth=0.5ex},
+  pa separator/.style={anchor=mid, inner sep=0pt},
+  pa coefficient/.style={anchor=mid east, inner sep=0pt},
+  pa error/.style={draw=red, text=red, font=\bfseries},
+}
+\ExplSyntaxOn

@@ -1,0 +1,400 @@
+\documentclass[11pt]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{parskip}
+\usepackage{fancyvrb}
+\usepackage{planaralgebra}
+\usepackage[hidelinks]{hyperref}
+
+\DefineVerbatimEnvironment{code}{Verbatim}
+  {frame=leftline, framerule=1pt, rulecolor=\color{black!25},
+   xleftmargin=1em, fontsize=\small, formatcom=\color{black!80}}
+\newenvironment{result}{\par\smallskip\noindent\hspace*{1em}}{\par\medskip}
+\newcommand\opt[1]{\texttt{#1}}
+\newcommand\cs[1]{\texttt{\textbackslash#1}}
+\newcommand\meta[1]{\ensuremath{\langle}\textit{#1}\ensuremath{\rangle}}
+\newcommand\marg[1]{\texttt{\{}\meta{#1}\texttt{\}}}
+\newcommand\oarg[1]{\texttt{[}\meta{#1}\texttt{]}}
+
+\title{The \textsf{planaralgebra} package\\[2pt]
+  \large Planar tangles and planar algebra diagrams in \LaTeX{} with Ti\emph{k}Z}
+\date{Version 1.0, 2026/10/30}
+\author{}
+
+\PAdefine{T}{\PA{2,4}{coev, id, id}\PA{4,2}{id, ev, S(1,1)}}
+
+\begin{document}
+\maketitle
+
+\noindent
+A planar tangle is a disc with some input discs removed, together with
+disjoint strings that connect the marked points on the boundaries; the
+regions between the strings are shaded in a checkerboard fashion, and every
+disc has a star $\star$ that marks its first region. Planar tangles act on
+planar algebras by composition: $S \circ_i T$ glues the tangle $T$ into the
+$i$-th input disc of $S$. This package draws such tangles from a
+description layer by layer, in the style of the \textsf{plumber} package for
+2d cobordisms:
+\[
+  \PA[numbers]{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev}
+  \;\circ_3\;
+  \PA{2,4}{coev, id, id}\PA{4,2}{id, ev, S(1,1)}
+  \;=\;
+  \PA[insert={3=T}]{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev}
+\]
+Each \cs{PA}\marg{m,n}\marg{items} is one layer, the side-by-side
+juxtaposition of the listed strings and input discs, going from $m$ to $n$
+boundary points; consecutive \cs{PA} commands are stacked into one tangle.
+The package places the strings, shades the regions, draws the stars and the
+outer disc, and with \opt{reduce} it computes a normal form of the tangle:
+closed loops are removed and counted, and the strings are pulled tight.
+
+\section{Quick start}
+
+\begin{code}
+\usepackage{planaralgebra}   % loads TikZ
+...
+\PA{2,4}{id, id, coev}\PA{4,4}{id, T(2,2), id}\PA{4,2}{id, id, ev}
+\end{code}
+\begin{result}
+  \PA{2,4}{id, id, coev}\PA{4,4}{id, T(2,2), id}\PA{4,2}{id, id, ev}
+\end{result}
+
+The first argument is the number of boundary points above and below the
+layer (\verb|2,4| means two strands in, four out); it is checked against the
+items and may also be left empty. The second argument is a comma-separated
+list of items, read from left to right (from top to bottom in horizontal
+diagrams). \verb|id^3| is short for \verb|id, id, id|, and the same works
+for any item.
+
+\section{Generators and input discs}
+
+\begin{center}
+\begin{tabular}{@{}lllc@{}}
+  \toprule
+  item & aliases & strands & picture \\
+  \midrule
+  \opt{id}   & \opt{line}, \opt{strand} & $1\to1$ & \PA{1,1}{id} \\
+  \opt{ev}   & \opt{cup}, \opt{pair}    & $2\to0$ & \PA{2,0}{ev} \\
+  \opt{coev} & \opt{cap}, \opt{copair}  & $0\to2$ & \PA{0,2}{coev} \\
+  \meta{label}\texttt{(}$a$\texttt{,}$b$\texttt{)} & & $a\to b$ & \PA{1,3}{x(1,3)} \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+Every item that is not a generator is an input disc. Its label is typeset in
+math mode, so \verb|\alpha(1,1)| gives a disc labelled $\alpha$. The counts
+\verb|(a,b)| say how many strands leave the disc on the input side (above
+it) and on the output side (below it); \verb|(a;b)| and \verb|(a/b)| are
+accepted as well. When a layer has a single disc and its counts are
+declared, the counts of the disc may be omitted: \verb|\PA{2,2}{x}| is
+the same as \verb|\PA{2,2}{x(2,2)}|. Discs can be repeated like
+generators: \verb|f(1,1)^2|.
+
+\cs{PAgenerators}\oarg{options} draws the items of the key \opt{list} (by
+default \opt{id}, \opt{ev}, \opt{coev}, \verb|x(1,1)| and \verb|x(2,2)|) next
+to each other; the starred
+form leaves out \opt{id}. With \opt{names} each one gets its name.
+
+\begin{code}
+\PAgenerators[names]
+\PAgenerators*[names, list={cup, cap, R(2,2), Q(1,3)}]
+\end{code}
+\begin{result}
+  \PAgenerators[names]
+\end{result}
+\begin{result}
+  \PAgenerators*[names, list={cup, cap, R(2,2), Q(1,3)}]
+\end{result}
+
+\section{The features}
+
+\subsection{Composition}
+
+Consecutive \cs{PA} commands form one tangle (spaces and single line breaks
+between them are allowed; an empty line or any other token ends the
+tangle). The output points of one layer are glued to the input points of the
+next one, so the counts must agree. Options can be given to any \cs{PA} of
+the chain and apply to the whole tangle.
+
+\begin{code}
+\[ \PA{1,3}{id, coev}\PA{3,1}{ev, id} = \PA{1,1}{id}
+   \qquad
+   \PA{0,2}{coev}\PA{2,2}{x}\PA{2,0}{ev} \]
+\end{code}
+\begin{result}
+  \( \PA{1,3}{id, coev}\PA{3,1}{ev, id} = \PA{1,1}{id}
+     \qquad
+     \PA{0,2}{coev}\PA{2,2}{x}\PA{2,0}{ev} \)
+\end{result}
+
+If the counts do not match, or a disc has no counts that could be inferred,
+the package reports an error that names the offending layer and draws a red
+{\color{red}\bfseries ??} instead of the tangle. Should \cs{PA} already be
+defined by another package, \cs{PAlayer} is a synonym with the same
+arguments (the two can be mixed in a chain).
+
+\subsection{Vertical or horizontal}
+
+Tangles are \opt{vertical} by default: composition runs from top to bottom
+and the first strand is on the left. With \opt{horizontal}, composition runs
+from left to right. \opt{reverse} flips the direction of composition (bottom
+to top, or right to left). \opt{orientation=vertical} and
+\opt{orientation=horizontal} are long forms, and \cs{paset}\marg{options}
+changes the defaults for the rest of the group.
+
+\begin{code}
+\PA{3,3}{id, x(2,2)}\PA{3,1}{ev, id}
+\PA[horizontal]{3,3}{id, x(2,2)}\PA{3,1}{ev, id}
+\PA[reverse]{3,3}{id, x(2,2)}\PA{3,1}{ev, id}
+\end{code}
+\begin{result}
+  \PA{3,3}{id, x(2,2)}\PA{3,1}{ev, id}\qquad
+  \PA[horizontal]{3,3}{id, x(2,2)}\PA{3,1}{ev, id}\qquad
+  \PA[reverse]{3,3}{id, x(2,2)}\PA{3,1}{ev, id}
+\end{result}
+
+\subsection{The outer disc}
+
+The key \opt{outer} chooses the shape of the boundary: \opt{circle} (the
+default), \opt{ellipse}, \opt{rectangle} or \opt{none}. \opt{box shape}
+(\opt{circle} or \opt{rectangle}) does the same for the input discs; wide
+labels make rectangular discs longer.
+
+\begin{code}
+\PA[outer=ellipse]{3,3}{id, x(2,2)}\PA{3,1}{ev, id}
+\PA[outer=rectangle]{3,3}{id, x(2,2)}\PA{3,1}{ev, id}
+\PA[outer=none]{3,3}{id, x(2,2)}\PA{3,1}{ev, id}
+\PA[box shape=rectangle]{3,1}{y(3,1)}
+\end{code}
+\begin{result}
+  \PA[outer=ellipse]{3,3}{id, x(2,2)}\PA{3,1}{ev, id}\qquad
+  \PA[outer=rectangle]{3,3}{id, x(2,2)}\PA{3,1}{ev, id}\qquad
+  \PA[outer=none]{3,3}{id, x(2,2)}\PA{3,1}{ev, id}\qquad
+  \PA[box shape=rectangle]{3,1}{y(3,1)}
+\end{result}
+
+\subsection{Shading and stars}
+
+The regions of a tangle are shaded in a checkerboard fashion. With
+\opt{sign=+} (or \opt{positive}, the default) the region at the star of the
+outer disc, the leftmost region, is unshaded; \opt{sign=-} (or
+\opt{negative}) shades it. \opt{shading=false} turns the shading off; if a
+disc has an odd number of strands, no checkerboard shading exists and the
+package warns and draws the tangle without it. Every disc gets a star in its
+first region, and \opt{stars=false} leaves the stars out. \opt{shade} sets
+the colour of the shaded regions.
+
+\begin{code}
+\PA{2,2}{x}  \PA[negative]{2,2}{x}  \PA[shading=false]{2,2}{x}
+\PA[stars=false]{2,2}{x}  \PA[shade=red!20]{2,2}{x}
+\end{code}
+\begin{result}
+  \PA{2,2}{x}\quad \PA[negative]{2,2}{x}\quad \PA[shading=false]{2,2}{x}\quad
+  \PA[stars=false]{2,2}{x}\quad \PA[shade=red!20]{2,2}{x}
+\end{result}
+
+\subsection{Numbers and labels}
+
+\opt{numbers} writes the number of every input disc into it (instead of its
+label), in the order in which the discs appear in the layers. These are the
+numbers used by \opt{insert} below. \opt{labels} numbers the boundary points
+of the outer disc, clockwise from the star.
+
+\begin{code}
+\PA[numbers]{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev}
+\PA[labels]{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev}
+\end{code}
+\begin{result}
+  \PA[numbers]{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev}
+  \qquad
+  \PA[labels]{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev}
+\end{result}
+
+\subsection{Reduced form}
+
+Two tangles describe the same element of a planar algebra when they are
+isotopic, and a closed loop can be replaced by the scalar $\delta$, the loop
+value. With \opt{reduce} the package computes a normal form: it removes
+closed loops (they become a coefficient $\delta^k$ in front of the tangle),
+pulls the strings tight so that zig-zags disappear and strands that only
+turn around next to a disc are retracted, and draws the result in a standard
+shape. In the normal form the input discs are stacked one above the other,
+and between two consecutive discs (and above the first and below the last)
+the strings form a Temperley--Lieb diagram written as cups, then through
+strands, then caps. Discs on neighbouring levels can often be interchanged,
+one passing the other on the left or on the right; the package goes through
+all the arrangements of the discs that can be reached in this way and takes
+the one whose description comes first in a fixed (lexicographic) order. So
+isotopic tangles give the same normal form, and reducing a normal form gives
+it back. Tangles with many discs that can move independently of each other
+(for instance several discs that are not connected to the boundary) have
+many arrangements; the search stops after \opt{max states} of them (default
+\opt{100}) with a warning, and then the normal form may depend on how the
+tangle was entered.
+
+\begin{code}
+\[ \PA{0,2}{coev}\PA{2,4}{id, coev, id}\PA{4,2}{id, ev, id}\PA{2,0}{ev}
+   = \PA[reduce]{0,2}{coev}\PA{2,4}{id, coev, id}\PA{4,2}{id, ev, id}\PA{2,0}{ev} \]
+\[ \PA{1,1}{id}\PA{1,3}{id, coev}\PA{3,1}{ev, id}
+   = \PA[reduce]{1,1}{id}\PA{1,3}{id, coev}\PA{3,1}{ev, id}
+   \qquad
+   \PA{0,2}{coev}\PA{2,2}{T(2,2)}\PA{2,0}{ev}
+   = \PA[reduce]{0,2}{coev}\PA{2,2}{T(2,2)}\PA{2,0}{ev} \]
+\end{code}
+\begin{result}
+  \( \PA{0,2}{coev}\PA{2,4}{id, coev, id}\PA{4,2}{id, ev, id}\PA{2,0}{ev}
+     = \PA[reduce]{0,2}{coev}\PA{2,4}{id, coev, id}\PA{4,2}{id, ev, id}\PA{2,0}{ev} \)
+\end{result}
+\begin{result}
+  \( \PA{1,1}{id}\PA{1,3}{id, coev}\PA{3,1}{ev, id}
+     = \PA[reduce]{1,1}{id}\PA{1,3}{id, coev}\PA{3,1}{ev, id}
+     \qquad
+     \PA{0,2}{coev}\PA{2,2}{T(2,2)}\PA{2,0}{ev}
+     = \PA[reduce]{0,2}{coev}\PA{2,2}{T(2,2)}\PA{2,0}{ev} \)
+\end{result}
+
+\begin{code}
+\[ \PA{2,4}{A(1,1), id, coev}\PA{4,2}{id, ev, B(1,1)}
+   = \PA[reduce]{2,4}{A(1,1), id, coev}\PA{4,2}{id, ev, B(1,1)} \]
+\end{code}
+\begin{result}
+  \( \PA{2,4}{A(1,1), id, coev}\PA{4,2}{id, ev, B(1,1)}
+     = \PA[reduce]{2,4}{A(1,1), id, coev}\PA{4,2}{id, ev, B(1,1)} \)
+\end{result}
+
+The key \opt{loop value} sets the symbol of a loop (default \verb|\delta|),
+and \opt{coefficient=false} draws the reduced tangle without the
+coefficient.
+
+\begin{code}
+\PA[horizontal, reduce, loop value=n]{0,2}{coev}\PA{2,0}{ev}\PA{0,2}{coev}\PA{2,2}{x}\PA{2,0}{ev}
+\end{code}
+\begin{result}
+  \PA[horizontal, reduce, loop value=n]{0,2}{coev}\PA{2,0}{ev}\PA{0,2}{coev}\PA{2,2}{x}\PA{2,0}{ev}
+\end{result}
+
+After every tangle (reduced or not) the following macros expand to data of
+the tangle that was just drawn: \cs{PAlastloops} (the number of closed
+loops), \cs{PAlastboxes} (the number of input discs) and, after
+\opt{reduce}, \cs{PAlastnormalform} (the normal form as a string of
+\cs{PA} commands, which can be fed back to the package). For the last
+example, \cs{PAlastloops} is \PAlastloops, \cs{PAlastboxes} is
+\PAlastboxes, and the normal form is
+\begin{center}\ttfamily\small\PAlastnormalform\end{center}
+
+\subsection{Defining and composing tangles}
+
+\cs{PAdefine}\oarg{options}\marg{name}\marg{layers} stores a tangle under a
+name instead of drawing it (with \opt{reduce}, its normal form is stored).
+The key \opt{insert}\verb|={|$i$\verb|=|\meta{name}\verb|, ...}| glues the
+named tangle into the input disc number~$i$ (as shown by \opt{numbers}); its
+numbers of strands must agree with those of the disc. With \opt{expand},
+every input disc whose label is the name of a tangle is replaced by it.
+
+\begin{code}
+\PAdefine{T}{\PA{2,4}{coev, id, id}\PA{4,2}{id, ev, S(1,1)}}
+\[ \PA[numbers]{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev}
+   \circ_3 \PA{2,4}{coev, id, id}\PA{4,2}{id, ev, S(1,1)}
+   = \PA[insert={3=T}]{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev} \]
+\[ \PA[insert={3=T}, reduce]{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev}
+   \qquad
+   \PA{2,2}{T}\PA{2,2}{T} = \PA[expand]{2,2}{T}\PA{2,2}{T} \]
+\end{code}
+\begin{result}
+  \( \PA[numbers]{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev}
+     \circ_3 \PA{2,4}{coev, id, id}\PA{4,2}{id, ev, S(1,1)}
+     = \PA[insert={3=T}]{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev} \)
+\end{result}
+\begin{result}
+  \( \PA[insert={3=T}, reduce]{4,4}{D(2,2), A(1,1), id}\PA{4,4}{id, id, B(2,2)}\PA{4,2}{id, id, ev}
+     \qquad
+     \PA{2,2}{T}\PA{2,2}{T} = \PA[expand]{2,2}{T}\PA{2,2}{T} \)
+\end{result}
+
+\section{Appearance}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+  \toprule
+  key & default & meaning \\
+  \midrule
+  \opt{strand sep}  & \opt{0.5}      & distance between neighbouring strands (cm) \\
+  \opt{length}      & \opt{0.8}      & length of a layer (cm) \\
+  \opt{box size}    & \opt{0.22}     & minimal radius of an input disc (cm) \\
+  \opt{margin}      & \opt{0.3}      & space between the strings and the outer disc (cm) \\
+  \opt{label font}  & \verb|\small|  & font of the disc labels \\
+  \opt{scale}       & \opt{1}        & scales the picture (not the text) \\
+  \opt{baseline}    & \opt{-0.5ex}   & vertical alignment, as in TikZ \\
+  \opt{tikz}        &                & further options for the \texttt{tikzpicture} \\
+  \opt{shade}       &                & colour of the shaded regions \\
+  \opt{separator}   &                & symbol between the pictures of \cs{PAgenerators} \\
+  \opt{gap}         & \opt{0.3}      & space between the pictures of \cs{PAgenerators} (cm) \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+The drawing uses the TikZ styles \opt{pa string}, \opt{pa shaded},
+\opt{pa box} (input discs), \opt{pa outer}, \opt{pa star}, \opt{pa label}
+(disc labels), \opt{pa number} (disc numbers), \opt{pa boundary label},
+\opt{pa name}, \opt{pa separator}, \opt{pa coefficient} and \opt{pa error}.
+The keys \opt{string style}, \opt{shade style}, \opt{box style},
+\opt{outer style} and \opt{star style} append to the corresponding styles.
+
+\begin{code}
+\PA[string style={thick, blue!60!black}, outer style={line width=2pt}]{2,2}{x}
+\PA[box style={fill=yellow}, star style={text=red}]{2,2}{x}
+\PA[length=1.2, strand sep=0.8, box size=0.3]{3,3}{id, x(2,2)}\PA{3,1}{ev, id}
+\end{code}
+\begin{result}
+  \PA[string style={thick, blue!60!black}, outer style={line width=2pt}]{2,2}{x}\qquad
+  \PA[box style={fill=yellow}, star style={text=red}]{2,2}{x}\qquad
+  \PA[length=1.2, strand sep=0.8, box size=0.3]{3,3}{id, x(2,2)}\PA{3,1}{ev, id}
+\end{result}
+
+\section{Layout}
+
+The numbers of strands change from layer to layer, so their positions are
+computed. Every item says where it would like the strands next to it to be:
+a strand keeps its position, a cup or cap puts its two ends half a strand
+distance on either side of its middle, and an input disc spreads its strands
+evenly around its centre. On every seam between two layers the positions are
+the best least-squares fit to these wishes under the condition that
+neighbouring strands are at least \opt{strand sep} apart (an isotonic
+regression), and a few sweeps back and forth through the tangle let both
+neighbours of a seam have their say. The outer disc is then fitted around the
+picture, and the strands that reach it are extended to its boundary.
+
+\section{The standalone class}
+
+With \verb|\documentclass[tikz]{standalone}| every TikZ picture becomes a
+page of its own. Tangles inside \verb|\[...\]| and \verb|\(...\)| are handled
+like in the \textsf{temperleylieb} and \textsf{plumber} packages: the whole
+formula becomes one cropped page. Tangles outside formulas are pages of
+their own. Other math environments (\verb|$...$|, \verb|equation|) cannot be
+turned into pages; the package warns and draws the tangle inline, so use
+\verb|\[...\]| there, or the class option \opt{varwidth}.
+
+\section{Summary of commands}
+
+\begin{description}
+  \item[\cs{PA}\oarg{options}\marg{m,n}\marg{items}] One layer; a chain of
+    layers is one tangle. \cs{PAlayer} is a synonym.
+  \item[\cs{PAgenerators}\texttt{*}\oarg{options}] The items in \opt{list}
+    side by side.
+  \item[\cs{PAdefine}\oarg{options}\marg{name}\marg{layers}] Stores a
+    tangle for \opt{insert} and \opt{expand}.
+  \item[\cs{paset}\marg{options}] Sets options for the current group.
+  \item[\cs{PAlastloops}, \cs{PAlastboxes}] Number of closed loops and of
+    input discs of the last tangle.
+  \item[\cs{PAlastnormalform}] Normal form of the last reduced tangle.
+\end{description}
+
+The package is written in \textsf{expl3} and needs a \LaTeX{} kernel from
+2020-10 or newer and TikZ. It is distributed under the \LaTeX{} Project
+Public License~1.3c.
+
+\end{document}

@@ -2929,13 +2929,21 @@
     \group_end:
   }
 
-\NewDocumentCommand \PAgenerators { O{} }
+\NewDocumentCommand \PAgenerators { s O{} }
   {
     \group_begin:
-      \keys_set:nn { planaralgebra } {#1}
+      \keys_set:nn { planaralgebra } {#2}
       \tl_clear:N \l__planar_draw_tl
       \fp_zero:N \l__planar_off_fp
       \bool_set_true:N \l__planar_first_bool
+      \IfBooleanT {#1}
+        {
+          \clist_set:Ne \l__planar_list_clist
+            {
+              \clist_map_function:NN \l__planar_list_clist
+                \__planar_drop_id:n
+            }
+        }
       \clist_map_inline:Nn \l__planar_list_clist
         {
           \__planar_start:
@@ -2960,6 +2968,13 @@
         }
       \__planar_picture:
     \group_end:
+  }
+
+\cs_new:Npn \__planar_drop_id:n #1
+  {
+    \str_if_eq:eeF { \prop_item:Ne \c__planar_alias_prop { \tl_trim_spaces:n {#1} } }
+      { id }
+      { \exp_not:n { {#1} , } }
   }
 
 \NewExpandableDocumentCommand \PAlastloops { }
